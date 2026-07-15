@@ -1,0 +1,112 @@
+"""Hybrid retriever: vector + full-text (RRF fusion) + graph expansion."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from ..config import Settings
+from ..models import Chunk
+from .embeddings import TitanEmbedder
+from .graph_store import GraphStore
+from .vector_store import VectorStore
+
+
+@dataclass
+class RetrievedChunk:
+    chunk: Chunk
+    score: float
+    provenance: str  # "vector+fts" | "graph"
+
+
+def _rrf(rank: int, k: int = 60) -> float:
+    return 1.0 / (k + rank)
+
+
+class HybridRetriever:
+    def __init__(
+        self,
+        settings: Settings,
+        store: VectorStore,
+        graph: GraphStore,
+        embedder: TitanEmbedder,
+        chunks_by_id: dict[str, Chunk],
+    ):
+        self.s = settings
+        self.store = store
+        self.graph = graph
+        self.embedder = embedder
+        self.by_id = chunks_by_id
+
+    def retrieve(
+        self,
+        query: str,
+        doc_types: list[str] | None = None,
+        k: int | None = None,
+        guarantee_tables: tuple[str, int] | None = None,
+    ) -> list[RetrievedChunk]:
+        """`guarantee_tables=(doc_type, n)` reserves n slots for the best-matching
+        *table* chunks from that document, so results sections always get their
+        TFL data tables even though grids of numbers embed weakly against a
+        definitional query."""
+        k = k or self.s.top_k_final
+        qvec = self.embedder.embed_one(query)
+
+        reserved: list[RetrievedChunk] = []
+        reserved_ids: set[str] = set()
+        if guarantee_tables:
+            gt_doc, gt_n = guarantee_tables
+            tbl_hits = self.store.vector_search(qvec, gt_n * 3, [gt_doc], kinds=["table"])
+            tbl_fts = self.store.fts_search(query, gt_n * 2, [gt_doc], kinds=["table"])
+            fused_t: dict[str, float] = {}
+            order: dict[str, Chunk] = {}
+            for rank, h in enumerate(tbl_hits):
+                fused_t[h.chunk.id] = fused_t.get(h.chunk.id, 0.0) + _rrf(rank)
+                order[h.chunk.id] = h.chunk
+            for rank, h in enumerate(tbl_fts):
+                fused_t[h.chunk.id] = fused_t.get(h.chunk.id, 0.0) + _rrf(rank)
+                order[h.chunk.id] = h.chunk
+            for cid, _ in sorted(fused_t.items(), key=lambda kv: kv[1], reverse=True)[:gt_n]:
+                reserved.append(RetrievedChunk(order[cid], 1.0, "guaranteed-table"))
+                reserved_ids.add(cid)
+
+        vhits = self.store.vector_search(qvec, self.s.top_k_vector, doc_types)
+        fhits = self.store.fts_search(query, self.s.top_k_fts, doc_types)
+
+        # Reciprocal-rank fusion across the two lists.
+        fused: dict[str, float] = {}
+        for rank, h in enumerate(vhits):
+            fused[h.chunk.id] = fused.get(h.chunk.id, 0.0) + _rrf(rank)
+        for rank, h in enumerate(fhits):
+            fused[h.chunk.id] = fused.get(h.chunk.id, 0.0) + _rrf(rank)
+
+        seed_ids = [cid for cid, _ in sorted(fused.items(), key=lambda kv: kv[1], reverse=True)]
+        results: list[RetrievedChunk] = []
+        for cid in seed_ids:
+            if cid in reserved_ids:
+                continue
+            ch = self.by_id.get(cid)
+            if ch is not None:
+                results.append(RetrievedChunk(ch, fused[cid], "vector+fts"))
+
+        # Graph expansion: pull cross-document chunks sharing clinical entities.
+        if self.s.graph_hops > 0 and seed_ids:
+            top_seeds = seed_ids[: min(6, len(seed_ids))]
+            expanded = self.graph.neighbors_of_chunks(top_seeds, max_expand=k)
+            existing = {r.chunk.id for r in results}
+            for cid in expanded:
+                if cid in existing:
+                    continue
+                ch = self.by_id.get(cid)
+                if ch is None:
+                    continue
+                if doc_types and ch.doc not in doc_types:
+                    continue
+                results.append(RetrievedChunk(ch, 0.0, "graph"))
+
+        # Reserved TFL result tables always lead; then vector+fts by score, then
+        # graph extras. Reserved tables are additive to the k budget so they
+        # never displace the definitional context.
+        primary = [r for r in results if r.provenance == "vector+fts"]
+        graph_extra = [r for r in results if r.provenance == "graph"]
+        primary.sort(key=lambda r: r.score, reverse=True)
+        tail = (primary + graph_extra)[:k]
+        return reserved + tail
