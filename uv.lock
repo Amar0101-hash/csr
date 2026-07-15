@@ -232,8 +232,10 @@ dependencies = [
     { name = "langchain-aws" },
     { name = "langchain-text-splitters" },
     { name = "langgraph-checkpoint-aws" },
+    { name = "neo4j" },
     { name = "networkx", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "networkx", version = "3.6.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "networkx-neo4j" },
     { name = "nltk" },
     { name = "pyarrow" },
     { name = "python-docx" },
@@ -249,7 +251,9 @@ requires-dist = [
     { name = "langchain-aws", specifier = ">=1.6.2" },
     { name = "langchain-text-splitters", specifier = ">=1.1.2" },
     { name = "langgraph-checkpoint-aws", specifier = ">=1.2.0" },
+    { name = "neo4j", specifier = ">=6.2.0" },
     { name = "networkx", specifier = ">=3.4.2" },
+    { name = "networkx-neo4j", specifier = ">=0.0.2" },
     { name = "nltk", specifier = ">=3.10.0" },
     { name = "pyarrow", specifier = ">=25.0.0" },
     { name = "python-docx", specifier = ">=1.2.0" },
@@ -833,6 +837,30 @@ wheels = [
 ]
 
 [[package]]
+name = "neo4j"
+version = "6.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ce/f4/aaa4ac19adae4b01bc742b63afd2672a77e7351566f02721e713e4b863ee/neo4j-6.2.0.tar.gz", hash = "sha256:e1e246b65b572bd8ea97f9e0e721b7d40a5ce53e53d0007c29aef63e4f9124d9", size = 241459, upload-time = "2026-05-04T07:35:41.428Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e6/cf/1c3795866cefaac6e648d4e98c373cafd97810f6e317c307371007ab4abb/neo4j-6.2.0-py3-none-any.whl", hash = "sha256:b87abdd13a5cc2e3bd51026926c2f20ac38fa3febe98c340520dce19e97388d0", size = 327824, upload-time = "2026-05-04T07:35:39.604Z" },
+]
+
+[[package]]
+name = "neo4j-driver"
+version = "5.28.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytz" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/64/e5/139816a8b44c5bc13a705ed1dae9fea6f3ac8d97710521c366071338a6d6/neo4j_driver-5.28.4.tar.gz", hash = "sha256:a21707ebd267da3165ac66ce7dfbfb3d29cfe4ef5de6e50c6bda19975a654b39", size = 232697, upload-time = "2026-05-04T08:00:53.907Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/57/31/5eee49b9dc3fe8a2ffe77fd3fc8ee90ecfdabb21f3e11435ddabe421a3b5/neo4j_driver-5.28.4-py3-none-any.whl", hash = "sha256:de86c171496d195408b316c7c00a3bccdb26319868631eed787210035c989129", size = 314147, upload-time = "2026-05-04T08:00:50.183Z" },
+]
+
+[[package]]
 name = "networkx"
 version = "3.4.2"
 source = { registry = "https://pypi.org/simple" }
@@ -855,6 +883,18 @@ resolution-markers = [
 sdist = { url = "https://files.pythonhosted.org/packages/6a/51/63fe664f3908c97be9d2e4f1158eb633317598cfa6e1fc14af5383f17512/networkx-3.6.1.tar.gz", hash = "sha256:26b7c357accc0c8cde558ad486283728b65b6a95d85ee1cd66bafab4c8168509", size = 2517025, upload-time = "2025-12-08T17:02:39.908Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl", hash = "sha256:d47fbf302e7d9cbbb9e2555a0d267983d2aa476bac30e90dfbe5669bd57f3762", size = 2068504, upload-time = "2025-12-08T17:02:38.159Z" },
+]
+
+[[package]]
+name = "networkx-neo4j"
+version = "0.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "neo4j-driver" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/59/65/7652e58e2f14edfaf69753b0e58dd340ed75bca93ef659e8b74342a05eaf/networkx-neo4j-0.0.2.tar.gz", hash = "sha256:2d370266d64c18cc240d3dca64863472d8de7d55170e1e4f5890f05eb46c2200", size = 4415, upload-time = "2020-08-25T15:14:46.327Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/98/2d7e750e711223653f38bce5790c93582eb53e66c633badb4f375db1e909/networkx_neo4j-0.0.2-py3-none-any.whl", hash = "sha256:19d58453b07f73b4dfc2bf01958811832291840660ecf3ec0309b72f5442dbe7", size = 9966, upload-time = "2020-08-25T15:14:44.606Z" },
 ]
 
 [[package]]
@@ -1433,6 +1473,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a9/f7/eddfe33871520adab45aaa1a71f0402a2252050c14c7e3009446c8f4701c/python_docx-1.2.0.tar.gz", hash = "sha256:7bc9d7b7d8a69c9c02ca09216118c86552704edc23bac179283f2e38f86220ce", size = 5723256, upload-time = "2025-06-16T20:46:27.921Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d0/00/1e03a4989fa5795da308cd774f05b704ace555a70f9bf9d3be057b680bcf/python_docx-1.2.0-py3-none-any.whl", hash = "sha256:3fd478f3250fbbbfd3b94fe1e985955737c145627498896a8a6bf81f4baf66c7", size = 252987, upload-time = "2025-06-16T20:46:22.506Z" },
+]
+
+[[package]]
+name = "pytz"
+version = "2026.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/46/dd499ec9038423421951e4fad73051febaa13d2df82b4064f87af8b8c0c3/pytz-2026.2.tar.gz", hash = "sha256:0e60b47b29f21574376f218fe21abc009894a2321ea16c6754f3cad6eb7cdd6a", size = 320861, upload-time = "2026-05-04T01:35:29.667Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/dd/96da98f892250475bdf2328112d7468abdd4acc7b902b6af23f4ed958ea0/pytz-2026.2-py2.py3-none-any.whl", hash = "sha256:04156e608bee23d3792fd45c94ae47fae1036688e75032eea2e3bf0323d1f126", size = 510141, upload-time = "2026-05-04T01:35:27.408Z" },
 ]
 
 [[package]]

@@ -224,11 +224,32 @@ def _render_table_before(doc: Document, anchor: Optional[Paragraph], rows: list[
 
 # ---- template form-table filling ----
 
-def _copy_font(dst_run, src_run) -> None:
+def _snapshot(run) -> tuple:
+    """Capture (bold, size, name, color) of a run before we clear it, so the
+    template's own label formatting can be reapplied (preserve fonts/styles)."""
+    if run is None:
+        return (None, None, None, None)
+    color = None
     try:
-        if src_run is not None:
-            dst_run.font.size = src_run.font.size
-            dst_run.font.name = src_run.font.name
+        if run.font.color is not None and run.font.color.rgb is not None:
+            color = run.font.color.rgb
+    except Exception:
+        color = None
+    return (run.bold, run.font.size, run.font.name, color)
+
+
+def _apply(run, snap: tuple, bold, black: bool) -> None:
+    b, size, name, color = snap
+    run.bold = b if bold is None else bold
+    try:
+        if size is not None:
+            run.font.size = size
+        if name is not None:
+            run.font.name = name
+        if black:
+            run.font.color.rgb = None            # body value -> default (black)
+        elif color is not None:
+            run.font.color.rgb = color           # preserve template label color
     except Exception:
         pass
 
@@ -241,27 +262,28 @@ def _first_run(cell) -> object:
 
 
 def _write_cell(cell, label: Optional[str], value: str) -> None:
-    """Rewrite a cell as an optional bold label + value, preserving cell font."""
-    ref = _first_run(cell)
-    # clear all paragraphs but the first
+    """Rewrite a cell preserving the template's label formatting.
+
+    synopsis  (label given): keep the original label run's formatting exactly
+              (bold/size/name/color as the template had it), value in body style.
+    label_value (label None): this is the value cell; write value in body style.
+    """
+    para = cell.paragraphs[0]
+    orig = para.runs[0] if para.runs else _first_run(cell)
+    snap = _snapshot(orig)
     for p in cell.paragraphs[1:]:
         _delete_paragraph(p)
-    para = cell.paragraphs[0]
     for r in list(para.runs):
         r.text = ""
-    # remove extra empty runs
     first = para.runs[0] if para.runs else para.add_run("")
     if label:
         first.text = f"{label}: "
-        first.bold = True
-        _copy_font(first, ref)
+        _apply(first, snap, bold=snap[0], black=False)   # preserve template label
         val_run = para.add_run(value)
-        val_run.bold = False
-        _copy_font(val_run, ref)
+        _apply(val_run, snap, bold=False, black=True)    # body value
     else:
         first.text = value
-        first.bold = False
-        _copy_font(first, ref)
+        _apply(first, snap, bold=False, black=True)       # body value
 
 
 def _fill_form_table(table: Table, tf) -> bool:

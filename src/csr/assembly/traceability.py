@@ -54,10 +54,28 @@ def write_generated_preview(
             lines.append(f"> note: {gen.notes}")
         lines.append("")
         if gen.table_fills:
+            from ..generation.table_fill import classify_form, _is_skip
+
             for tf in gen.table_fills:
-                lines.append(f"### Filled table (mode={tf.mode})")
+                lines.append(f"### Table (mode={tf.mode})")
+                # list every field with status, not just the filled ones
+                labels: list[str] = []
+                if 0 <= tf.table_index < len(section.tables):
+                    form = classify_form(section.tables[tf.table_index])
+                    if form:
+                        labels = form[1]
+                shown = set()
+                for label in labels:
+                    if label in tf.values:
+                        lines.append(f"- **{label}:** {tf.values[label]}")
+                    elif _is_skip(label):
+                        lines.append(f"- _{label}: (left for human — personal/sign-off field)_")
+                    else:
+                        lines.append(f"- _{label}: (not found in sources)_")
+                    shown.add(label)
                 for label, value in tf.values.items():
-                    lines.append(f"- **{label}:** {value}")
+                    if label not in shown:
+                        lines.append(f"- **{label}:** {value}")
                 lines.append("")
         if gen.paragraphs:
             lines.append("### Authored text")
