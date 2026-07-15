@@ -20,6 +20,15 @@ from .knowledge.embeddings import TitanEmbedder
 from .knowledge.graph_store import GraphStore
 from .knowledge.retriever import HybridRetriever
 from .knowledge.vector_store import VectorStore
+
+
+def _make_graph(settings: Settings):
+    """Pick the knowledge-graph backend: persistent Neo4j or in-memory networkx."""
+    if settings.graph_backend.lower() == "neo4j":
+        from .knowledge.neo4j_store import Neo4jGraphStore
+
+        return Neo4jGraphStore(settings)
+    return GraphStore()
 from .models import Chunk, GeneratedSection, SectionSpec
 
 
@@ -32,11 +41,13 @@ def ingest(settings: Settings, verbose: bool = True) -> list[Chunk]:
     if verbose:
         print(f"[ingest] loaded {len(chunks)} chunks from {settings.study_dir}")
 
-    graph = GraphStore()
+    graph = _make_graph(settings)
     graph.build(chunks)  # also backfills chunk.entities
     graph.save(settings.graph_path)
     if verbose:
-        print(f"[ingest] graph: {graph.g.number_of_nodes()} nodes, {graph.g.number_of_edges()} edges")
+        nodes, edges = graph.stats()
+        print(f"[ingest] graph ({settings.graph_backend}): {nodes} nodes, {edges} edges")
+    graph.close()
 
     # Persist chunks (JSON + readable preview) BEFORE vectorization so the
     # chunking can be inspected before anything is embedded/indexed.
@@ -65,8 +76,8 @@ def _load_retriever(settings: Settings) -> HybridRetriever:
     chunks = load_chunks(settings.sources_cache)
     by_id = {c.id: c for c in chunks}
     store = VectorStore(settings.lancedb_uri, settings.lancedb_table, settings.embed_dim)
-    graph = GraphStore()
-    graph.load(settings.graph_path)
+    graph = _make_graph(settings)
+    graph.load(settings.graph_path)  # no-op for Neo4j (already connected)
     embedder = TitanEmbedder(settings.embed_model, settings.aws_region, settings.embed_dim)
     return HybridRetriever(settings, store, graph, embedder, by_id)
 

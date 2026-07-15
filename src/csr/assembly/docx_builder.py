@@ -111,9 +111,13 @@ def build_report(
             if not section.generate:
                 stats["skipped"] += 1
                 continue
-            # generate=True but nothing produced -> placeholder
-            anchor = g_paras[0] if g_paras else None
-            _insert_note(doc, anchor, _placeholder_text(None), body_style)
+            # generate=True but nothing produced -> placeholder, under the heading
+            ins = _Inserter(
+                doc,
+                before=g_paras[0] if g_paras else None,
+                after_el=heading_by_section[idx]._p if (not g_paras and idx in heading_by_section) else None,
+            )
+            ins.paragraph(_placeholder_text(None), body_style)
             stats["placeholder"] += 1
             for gp in g_paras:
                 _delete_paragraph(gp)
@@ -129,22 +133,28 @@ def build_report(
                 if _fill_form_table(sec_tables[tf.table_index], tf):
                     stats["tables_filled"] += 1
 
-        # (c) insert prose (rendering any markdown tables as real Word tables)
-        anchor = g_paras[0] if g_paras else None
+        # (c) insert prose under the heading. Anchor before the first guidance
+        # paragraph if any; otherwise insert right after the heading so sections
+        # without guidance (endpoint placeholders) aren't dumped at doc end.
+        ins = _Inserter(
+            doc,
+            before=g_paras[0] if g_paras else None,
+            after_el=heading_by_section[idx]._p if (not g_paras and idx in heading_by_section) else None,
+        )
         first_para: Optional[Paragraph] = None
         if gen.paragraphs:
             for para_text in gen.paragraphs:
                 if _looks_like_md_table(para_text):
-                    _render_table_before(doc, anchor, _parse_md_table(para_text))
+                    ins.table(_parse_md_table(para_text))
                 else:
-                    np = _insert_note(doc, anchor, para_text, body_style)
+                    np = ins.paragraph(para_text, body_style)
                     if first_para is None:
                         first_para = np
             if add_comments and first_para is not None:
                 _attach_comment(doc, first_para, gen, stats)
             stats["authored"] += 1
         elif not gen.table_fills:
-            _insert_note(doc, anchor, _placeholder_text(gen), body_style)
+            ins.paragraph(_placeholder_text(gen), body_style)
             stats["placeholder"] += 1
         else:
             stats["authored"] += 1  # table-only section (Title Page / Summary)
@@ -158,6 +168,35 @@ def build_report(
     return stats
 
 
+class _Inserter:
+    """Places paragraphs/tables at the right spot: before the guidance anchor if
+    the section has guidance, otherwise chained right after the heading. This
+    keeps generated content under its heading instead of at the document end."""
+
+    def __init__(self, doc: Document, before: Optional[Paragraph] = None, after_el=None):
+        self.doc = doc
+        self.before = before
+        self.cursor = after_el  # lxml element to addnext against (heading/last block)
+
+    def _place(self, new_el) -> None:
+        if self.before is not None:
+            self.before._p.addprevious(new_el)
+        elif self.cursor is not None:
+            self.cursor.addnext(new_el)
+            self.cursor = new_el
+        # else: leave where doc.add_* put it (doc end) as a last resort
+
+    def paragraph(self, text: str, style) -> Paragraph:
+        p = self.doc.add_paragraph(text, style=style)
+        self._place(p._p)
+        return p
+
+    def table(self, rows: list[list[str]]) -> None:
+        tbl = _build_table(self.doc, rows)
+        if tbl is not None:
+            self._place(tbl._tbl)
+
+
 def _insert_note(doc: Document, anchor: Optional[Paragraph], text: str, style) -> Paragraph:
     if anchor is not None:
         return anchor.insert_paragraph_before(text, style=style)
@@ -165,19 +204,12 @@ def _insert_note(doc: Document, anchor: Optional[Paragraph], text: str, style) -
 
 
 def _set_heading_text(heading: Paragraph, text: str) -> None:
-    """Replace a placeholder heading's text, keeping its Heading style (size/bold)
-    and clearing the blue guidance color so it reads as a real heading."""
-    runs = heading.runs
-    if not runs:
-        heading.add_run(text)
-        return
-    runs[0].text = text
-    try:
-        runs[0].font.color.rgb = None  # inherit style default (black)
-    except Exception:
-        pass
-    for r in runs[1:]:
-        r.text = ""
+    """Replace a placeholder heading's text with a single fresh run so it inherits
+    the Heading style's formatting (bold, size, black) instead of the placeholder
+    runs' inconsistent per-run overrides (blue, mixed weights)."""
+    for r in list(heading.runs):
+        r._element.getparent().remove(r._element)
+    heading.add_run(text)  # fresh run, no overrides -> inherits Heading style
 
 
 # ---- markdown table rendering ----
@@ -201,9 +233,11 @@ def _parse_md_table(text: str) -> list[list[str]]:
     return rows
 
 
-def _render_table_before(doc: Document, anchor: Optional[Paragraph], rows: list[list[str]]) -> None:
+def _build_table(doc: Document, rows: list[list[str]]) -> Optional[Table]:
+    """Build a Word table (bold header row) appended at doc end; the caller moves
+    it into place."""
     if not rows:
-        return
+        return None
     ncols = max(len(r) for r in rows)
     table = doc.add_table(rows=len(rows), cols=ncols)
     try:
@@ -218,8 +252,7 @@ def _render_table_before(doc: Document, anchor: Optional[Paragraph], rows: list[
                 for cp in cell.paragraphs:
                     for run in cp.runs:
                         run.bold = True
-    if anchor is not None:
-        anchor._p.addprevious(table._tbl)
+    return table
 
 
 # ---- template form-table filling ----
@@ -335,8 +368,10 @@ def _save_resilient(doc: Document, output_path: Path) -> Path:
 
 
 def _placeholder_text(gen: Optional[GeneratedSection]) -> str:
-    reason = (gen.notes if gen and gen.notes else "insufficient source data").strip()
-    return f"[To be authored — {reason}]"
+    """Shown when a section produced no content, so it's never left blank."""
+    note = (gen.notes if gen and gen.notes else "").strip()
+    base = "Data not available in the provided source documents for this section."
+    return f"{base} [{note}]" if note else base
 
 
 def _attach_comment(doc: Document, para: Paragraph, gen: GeneratedSection, stats: dict) -> None:

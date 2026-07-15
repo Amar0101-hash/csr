@@ -68,6 +68,13 @@ class Settings:
     # --- LanceDB ---
     lancedb_table: str = "csr_chunks"
 
+    # --- Knowledge graph ---
+    graph_backend: str = field(default_factory=lambda: _env("CSR_GRAPH_BACKEND", "neo4j"))
+    neo4j_uri: str = field(default_factory=lambda: _env("CSR_NEO4J_URI", "bolt://localhost:7687"))
+    neo4j_user: str = field(default_factory=lambda: _env("CSR_NEO4J_USER", "neo4j"))
+    neo4j_password: str = field(default_factory=lambda: _env("CSR_NEO4J_PASSWORD", "password123"))
+    neo4j_database: str = field(default_factory=lambda: _env("CSR_NEO4J_DATABASE", "neo4j"))
+
     def ensure_dirs(self) -> None:
         for d in (self.work_dir, self.output_dir):
             d.mkdir(parents=True, exist_ok=True)

@@ -114,6 +114,12 @@ class GraphStore:
         ranked = sorted(scored.items(), key=lambda kv: kv[1], reverse=True)
         return [cid for cid, _ in ranked[:max_expand]]
 
+    def stats(self) -> tuple[int, int]:
+        return self.g.number_of_nodes(), self.g.number_of_edges()
+
+    def close(self) -> None:
+        pass
+
     def save(self, path: Path) -> None:
         with open(path, "wb") as f:
             pickle.dump(self.g, f)
