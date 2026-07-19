@@ -1,4 +1,4 @@
-"""Hybrid retriever: vector + full-text (RRF fusion) + graph expansion."""
+"""Vector retriever: vector + full-text search fused with RRF (no graph)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from ..config import Settings
 from ..models import Chunk
 from .embeddings import TitanEmbedder
-from .graph_store import GraphStore
 from .vector_store import VectorStore
 
 
@@ -14,25 +13,23 @@ from .vector_store import VectorStore
 class RetrievedChunk:
     chunk: Chunk
     score: float
-    provenance: str  # "vector+fts" | "graph"
+    provenance: str  # "vector+fts" | "guaranteed-table"
 
 
 def _rrf(rank: int, k: int = 60) -> float:
     return 1.0 / (k + rank)
 
 
-class HybridRetriever:
+class VectorRetriever:
     def __init__(
         self,
         settings: Settings,
         store: VectorStore,
-        graph: GraphStore,
         embedder: TitanEmbedder,
         chunks_by_id: dict[str, Chunk],
     ):
         self.s = settings
         self.store = store
-        self.graph = graph
         self.embedder = embedder
         self.by_id = chunks_by_id
 
@@ -87,26 +84,8 @@ class HybridRetriever:
             if ch is not None:
                 results.append(RetrievedChunk(ch, fused[cid], "vector+fts"))
 
-        # Graph expansion: pull cross-document chunks sharing clinical entities.
-        if self.s.graph_hops > 0 and seed_ids:
-            top_seeds = seed_ids[: min(6, len(seed_ids))]
-            expanded = self.graph.neighbors_of_chunks(top_seeds, max_expand=k)
-            existing = {r.chunk.id for r in results}
-            for cid in expanded:
-                if cid in existing:
-                    continue
-                ch = self.by_id.get(cid)
-                if ch is None:
-                    continue
-                if doc_types and ch.doc not in doc_types:
-                    continue
-                results.append(RetrievedChunk(ch, 0.0, "graph"))
-
-        # Reserved TFL result tables always lead; then vector+fts by score, then
-        # graph extras. Reserved tables are additive to the k budget so they
-        # never displace the definitional context.
-        primary = [r for r in results if r.provenance == "vector+fts"]
-        graph_extra = [r for r in results if r.provenance == "graph"]
-        primary.sort(key=lambda r: r.score, reverse=True)
-        tail = (primary + graph_extra)[:k]
-        return reserved + tail
+        # Reserved TFL result tables always lead; then vector+fts by score.
+        # Reserved tables are additive to the k budget so they never displace
+        # the definitional context.
+        results.sort(key=lambda r: r.score, reverse=True)
+        return reserved + results[:k]

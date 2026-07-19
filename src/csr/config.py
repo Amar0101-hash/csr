@@ -59,7 +59,6 @@ class Settings:
     top_k_vector: int = 12
     top_k_fts: int = 8
     top_k_final: int = 10
-    graph_hops: int = 1
 
     # --- Chunking ---
     chunk_target_tokens: int = 550
@@ -68,13 +67,6 @@ class Settings:
     # --- LanceDB ---
     lancedb_table: str = "csr_chunks"
 
-    # --- Knowledge graph ---
-    graph_backend: str = field(default_factory=lambda: _env("CSR_GRAPH_BACKEND", "neo4j"))
-    neo4j_uri: str = field(default_factory=lambda: _env("CSR_NEO4J_URI", "bolt://localhost:7687"))
-    neo4j_user: str = field(default_factory=lambda: _env("CSR_NEO4J_USER", "neo4j"))
-    neo4j_password: str = field(default_factory=lambda: _env("CSR_NEO4J_PASSWORD", "password123"))
-    neo4j_database: str = field(default_factory=lambda: _env("CSR_NEO4J_DATABASE", "neo4j"))
-
     def ensure_dirs(self) -> None:
         for d in (self.work_dir, self.output_dir):
             d.mkdir(parents=True, exist_ok=True)
@@ -82,10 +74,6 @@ class Settings:
     @property
     def lancedb_uri(self) -> str:
         return str(self.work_dir / "lancedb")
-
-    @property
-    def graph_path(self) -> Path:
-        return self.work_dir / "knowledge_graph.gpickle"
 
     @property
     def sources_cache(self) -> Path:

@@ -22,8 +22,6 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--region", help="Override AWS region")
     p.add_argument("--effort", choices=["low", "medium", "high", "max"],
                    help="Generation effort (default high). Lower = faster.")
-    p.add_argument("--graph", choices=["neo4j", "networkx"],
-                   help="Knowledge-graph backend (default neo4j)")
 
 
 def _settings(args) -> Settings:
@@ -38,8 +36,6 @@ def _settings(args) -> Settings:
         s.aws_region = args.region
     if getattr(args, "effort", None):
         s.effort = args.effort
-    if getattr(args, "graph", None):
-        s.graph_backend = args.graph
     return s
 
 

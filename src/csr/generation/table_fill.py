@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-from ..knowledge.retriever import HybridRetriever
+from ..knowledge.retriever import VectorRetriever
 from ..models import SectionSpec, TableFill
 from .llm import ClaudeClient
 from .prompts import format_excerpts
@@ -79,7 +79,7 @@ def classify_form(table: list[list[str]]) -> tuple[str, list[str]] | None:
 
 
 class FormFiller:
-    def __init__(self, client: ClaudeClient, retriever: HybridRetriever):
+    def __init__(self, client: ClaudeClient, retriever: VectorRetriever):
         self.client = client
         self.retriever = retriever
 

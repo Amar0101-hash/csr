@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CSR GraphRAG Explorer</title>
+<style>
+  :root{
+    --bg:#0b0f17; --panel:#121826; --panel2:#0e1420; --line:#1f2937;
+    --text:#e5e7eb; --muted:#94a3b8; --accent:#38bdf8; --accent2:#818cf8;
+    --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif;
+       background:var(--bg);color:var(--text);height:100vh;overflow:hidden}
+  header{display:flex;align-items:center;gap:20px;padding:12px 20px;
+         border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  header h1 span{color:var(--accent)}
+  .tabs{display:flex;gap:6px;margin-left:auto}
+  .tab{padding:6px 14px;border-radius:8px;cursor:pointer;color:var(--muted);
+       font-size:13px;border:1px solid transparent}
+  .tab.active{background:var(--panel2);color:var(--text);border-color:var(--line)}
+  .view{display:flex;height:calc(100vh - 53px)}
+  /* sidebar */
+  #sidebar{width:340px;flex-shrink:0;border-right:1px solid var(--line);
+           overflow:auto;background:var(--panel2)}
+  .srow{display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;
+        border-bottom:1px solid #0f1622;font-size:13px}
+  .srow:hover{background:#0f1726}
+  .srow.active{background:#132033;border-left:3px solid var(--accent)}
+  .srow.lvl2{padding-left:26px}.srow.lvl3{padding-left:40px}.srow.lvl4{padding-left:54px}
+  .snum{color:var(--muted);font-variant-numeric:tabular-nums;min-width:44px}
+  .stitle{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+  /* detail */
+  #detail{flex:1;overflow:auto;padding:22px 28px}
+  #detail-empty{color:var(--muted);margin-top:60px;text-align:center}
+  h2.sec-title{margin:0 0 6px;font-size:20px}
+  .badges{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  .badge{font-size:12px;padding:3px 9px;border-radius:20px;background:var(--panel);
+         border:1px solid var(--line);color:var(--muted)}
+  .badge.ok{color:var(--ok);border-color:#14532d}.badge.warn{color:var(--warn);border-color:#78350f}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:16px;margin-bottom:18px}
+  .card h3{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.6px;
+           color:var(--muted)}
+  textarea{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);
+           border-radius:8px;padding:12px;font:14px/1.55 inherit;resize:vertical}
+  #sec-body{min-height:230px}
+  .toolbar{display:flex;gap:10px;margin-bottom:12px;align-items:flex-start}
+  #custom-prompt{flex:1;min-height:44px;height:44px}
+  button{background:var(--accent);color:#04121c;border:0;border-radius:8px;
+         padding:0 16px;height:44px;font-weight:650;cursor:pointer;font-size:13px}
+  button.ghost{background:var(--panel);color:var(--text);border:1px solid var(--line);font-weight:500}
+  button:disabled{opacity:.5;cursor:default}
+  .src{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px;
+       background:var(--panel2)}
+  .src .top{display:flex;align-items:center;gap:10px;font-size:13px;cursor:pointer}
+  .role{font-size:11px;padding:2px 7px;border-radius:5px;background:#0b1220;border:1px solid var(--line);color:var(--muted)}
+  .score{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+  .src .path{color:var(--muted);font-size:12px;margin:2px 0 0 20px}
+  .src .prev{display:none;margin:8px 0 2px 20px;color:#cbd5e1;font-size:12.5px;
+             border-left:2px solid var(--line);padding-left:10px;white-space:pre-wrap;max-height:170px;overflow:auto}
+  .src.open .prev{display:block}
+  /* heatmap */
+  #coverage-view{padding:22px 28px;overflow:auto;display:block}
+  .legend{display:flex;gap:16px;align-items:center;margin-bottom:16px;color:var(--muted);font-size:13px}
+  .swatch{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:5px;vertical-align:-2px}
+  #heatmap{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .cell{border:1px solid var(--line);border-radius:8px;padding:10px;cursor:pointer;min-height:64px}
+  .cell:hover{outline:2px solid var(--accent)}
+  .cell .n{font-size:11px;color:#04121c;font-weight:700}
+  .cell .t{font-size:12px;margin-top:4px;color:#04121c;font-weight:600;line-height:1.25}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #04121c;border-top-color:transparent;
+        border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  svg text{fill:var(--text)}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>CSR</span> GraphRAG Explorer</h1>
+  <div class="tabs">
+    <div class="tab active" data-tab="sections">Sections</div>
+    <div class="tab" data-tab="coverage">Coverage heatmap</div>
+  </div>
+</header>
+
+<div id="sections-view" class="view">
+  <aside id="sidebar"></aside>
+  <main id="detail"><div id="detail-empty">Select a section on the left.</div>
+    <div id="detail-content" hidden>
+      <h2 class="sec-title" id="sec-title"></h2>
+      <div class="badges" id="sec-badges"></div>
+
+      <div class="card">
+        <h3>Content <span id="gen-status" style="text-transform:none;letter-spacing:0;color:var(--muted)"></span></h3>
+        <div class="toolbar">
+          <textarea id="custom-prompt" placeholder="Optional: custom instruction to regenerate (e.g. 'Summarise in 3 sentences and emphasise the noninferiority conclusion')"></textarea>
+          <button id="btn-regen">Regenerate</button>
+          <button id="btn-save" class="ghost">Save edits</button>
+        </div>
+        <textarea id="sec-body" placeholder="Not generated yet — click Regenerate."></textarea>
+      </div>
+
+      <div class="card">
+        <h3>Source lineage &nbsp;·&nbsp; template section &rarr; source nodes</h3>
+        <div id="lineage-graph"></div>
+      </div>
+
+      <div class="card">
+        <h3>Source traceability (FILLED_BY)</h3>
+        <div id="sources-list"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="coverage-view" class="view" hidden>
+  <div class="legend">
+    <span><span class="swatch" style="background:#ef4444"></span>gap (0)</span>
+    <span><span class="swatch" style="background:#f59e0b"></span>1–3</span>
+    <span><span class="swatch" style="background:#eab308"></span>4–7</span>
+    <span><span class="swatch" style="background:#22c55e"></span>8+</span>
+    <span style="margin-left:auto">click a cell to open the section</span>
+  </div>
+  <div id="heatmap"></div>
+</div>
+
+<script>
+const DOC_COLORS={protocol:"#3b82f6",sap:"#a78bfa",mop:"#22d3ee",
+  tfl_effectiveness:"#34d399",tfl_safety:"#f87171",tfl_conduct:"#fbbf24",tfl_listings:"#a3e635"};
+const covColor=n=> n===0?"#ef4444": n<4?"#f59e0b": n<8?"#eab308":"#22c55e";
+let CURRENT=null;
+
+async function jget(u){const r=await fetch(u);return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b)});return r.json();}
+
+async function loadSections(){
+  const rows=await jget("/api/sections");
+  const side=document.getElementById("sidebar");
+  side.innerHTML="";
+  rows.forEach(s=>{
+    const el=document.createElement("div");
+    el.className="srow lvl"+(s.level||1);
+    el.dataset.num=s.number;
+    el.innerHTML=`<span class="dot" style="background:${covColor(s.sources)}"></span>
+      <span class="snum">${s.number}</span>
+      <span class="stitle">${s.title}</span>
+      ${s.has_content?'<span title="has content" style="color:var(--ok)">●</span>':''}`;
+    el.onclick=()=>openSection(s.number);
+    side.appendChild(el);
+  });
+}
+
+async function openSection(num){
+  CURRENT=num;
+  document.querySelectorAll(".srow").forEach(r=>r.classList.toggle("active",r.dataset.num===num));
+  document.getElementById("detail-empty").hidden=true;
+  document.getElementById("detail-content").hidden=false;
+  const d=await jget("/api/sections/"+encodeURIComponent(num));
+  document.getElementById("sec-title").textContent="§"+d.number+"  "+d.title;
+  // badges
+  const v=d.verification||{}; const b=document.getElementById("sec-badges"); b.innerHTML="";
+  const add=(t,c)=>{const e=document.createElement("span");e.className="badge "+(c||"");e.textContent=t;b.appendChild(e);};
+  add(d.sources.length+" source nodes");
+  if(v.num_numbers!=null) add(v.num_numbers+" numbers",(v.unsupported_count?"warn":"ok"));
+  if(v.unsupported_count) add(v.unsupported_count+" unsupported","warn");
+  add(d.content?"content ✓":"no content yet", d.content?"ok":"");
+  document.getElementById("sec-body").value=d.content||"";
+  document.getElementById("gen-status").textContent="";
+  renderSources(d.sources);
+  loadLineage(num);
+}
+
+function renderSources(sources){
+  const box=document.getElementById("sources-list"); box.innerHTML="";
+  sources.forEach(s=>{
+    const el=document.createElement("div"); el.className="src";
+    el.innerHTML=`<div class="top">
+        <span class="dot" style="background:${DOC_COLORS[s.doc]||'#94a3b8'}"></span>
+        <b>${s.doc}</b>
+        <span class="role">${s.role||s.method||''}</span>
+        <span class="score">${(s.score||0).toFixed(3)}</span>
+      </div>
+      <div class="path">${s.path}${s.kind==='table'?'  ·  [table]':''}</div>
+      <div class="prev">${(s.preview||'').replace(/</g,'&lt;')}</div>`;
+    el.querySelector(".top").onclick=()=>el.classList.toggle("open");
+    box.appendChild(el);
+  });
+}
+
+async function loadLineage(num){
+  const g=await jget("/api/graph/"+encodeURIComponent(num));
+  const host=document.getElementById("lineage-graph");
+  const W=host.clientWidth||820, H=360, cx=W/2, cy=H/2;
+  const src=g.nodes.filter(n=>n.type==="source");
+  const R=Math.min(cx,cy)-90;
+  let svg=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`;
+  // edges
+  src.forEach((n,i)=>{
+    const a=(-Math.PI/2)+(2*Math.PI*i/Math.max(1,src.length));
+    const x=cx+R*Math.cos(a), y=cy+R*Math.sin(a);
+    const e=g.edges.find(e=>e.target===n.id)||{};
+    const w=1+4*(e.score||0);
+    svg+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="${n.color}" stroke-opacity="0.5" stroke-width="${w}"/>`;
+    svg+=`<text x="${(cx+x)/2}" y="${(cy+y)/2}" font-size="9" fill="#7c8aa0" text-anchor="middle">${(e.score||0).toFixed(2)}</text>`;
+  });
+  // source nodes
+  src.forEach((n,i)=>{
+    const a=(-Math.PI/2)+(2*Math.PI*i/Math.max(1,src.length));
+    const x=cx+R*Math.cos(a), y=cy+R*Math.sin(a);
+    const lab=(n.label||'').slice(0,26);
+    svg+=`<circle cx="${x}" cy="${y}" r="9" fill="${n.color}"/>`;
+    const anchor = x<cx?"end":"start"; const dx=x<cx?-13:13;
+    svg+=`<text x="${x+dx}" y="${y+3}" font-size="10.5" text-anchor="${anchor}">${lab}</text>`;
+  });
+  // center
+  svg+=`<circle cx="${cx}" cy="${cy}" r="15" fill="#0ea5e9"/>`;
+  svg+=`<text x="${cx}" y="${cy+30}" font-size="12" text-anchor="middle" font-weight="700">§${g.section.number}</text>`;
+  svg+="</svg>";
+  host.innerHTML = src.length? svg : '<div style="color:var(--muted)">No linked source nodes (coverage gap).</div>';
+}
+
+document.getElementById("btn-regen").onclick=async()=>{
+  if(!CURRENT)return;
+  const btn=document.getElementById("btn-regen"); btn.disabled=true;
+  document.getElementById("gen-status").innerHTML='<span class="spin"></span>generating…';
+  const cp=document.getElementById("custom-prompt").value;
+  const res=await jpost("/api/sections/"+encodeURIComponent(CURRENT)+"/generate",{custom_prompt:cp});
+  document.getElementById("sec-body").value=res.content||"";
+  document.getElementById("gen-status").textContent = res.content? "regenerated ✓" : (res.notes||"no content");
+  btn.disabled=false; loadSections();
+};
+document.getElementById("btn-save").onclick=async()=>{
+  if(!CURRENT)return;
+  await jpost("/api/sections/"+encodeURIComponent(CURRENT)+"/save",{content:document.getElementById("sec-body").value});
+  document.getElementById("gen-status").textContent="saved ✓"; loadSections();
+};
+
+async function loadHeatmap(){
+  const rows=await jget("/api/coverage");
+  const hm=document.getElementById("heatmap"); hm.innerHTML="";
+  rows.forEach(r=>{
+    const c=document.createElement("div"); c.className="cell";
+    c.style.background=covColor(r.sources);
+    c.innerHTML=`<div class="n">§${r.number} · ${r.sources} src</div><div class="t">${r.title}</div>`;
+    c.onclick=()=>{switchTab("sections");openSection(r.number);};
+    hm.appendChild(c);
+  });
+}
+
+function switchTab(name){
+  document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.tab===name));
+  document.getElementById("sections-view").hidden = name!=="sections";
+  document.getElementById("coverage-view").hidden = name!=="coverage";
+  if(name==="coverage") loadHeatmap();
+}
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+window.addEventListener("resize",()=>{if(CURRENT&&!document.getElementById("sections-view").hidden)loadLineage(CURRENT);});
+
+loadSections();
+</script>
+</body>
+</html>

@@ -9,7 +9,7 @@ Some sections (Title Page, Summary) are table-only — no loose prose.
 """
 from __future__ import annotations
 
-from ..knowledge.retriever import HybridRetriever, RetrievedChunk
+from ..knowledge.retriever import VectorRetriever, RetrievedChunk
 from ..models import Citation, GeneratedSection, SectionSpec
 from .llm import ClaudeClient
 from .prompts import (
@@ -27,7 +27,7 @@ from .verify import verify_section
 
 
 class SectionWriter:
-    def __init__(self, client: ClaudeClient, retriever: HybridRetriever,
+    def __init__(self, client: ClaudeClient, retriever: VectorRetriever,
                  style_ref: StyleReference | None = None):
         self.client = client
         self.retriever = retriever

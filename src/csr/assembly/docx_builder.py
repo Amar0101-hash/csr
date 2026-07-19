@@ -65,17 +65,22 @@ def build_report(
     generated: dict[str, GeneratedSection],
     output_path: Path,
     add_comments: bool = True,
+    exclude_keys: Optional[set] = None,
 ) -> dict:
+    """`exclude_keys`: section keys to REMOVE from the output entirely (heading,
+    guidance, boilerplate, and tables) — for studies where a template section
+    does not apply."""
     doc = Document(str(template_path))
     body_style = _safe_style(doc, BODY_STYLE)
 
     # First pass: assign each block to a section index (aligned by heading order
     # with the parsed `sections`). Collect guidance paragraphs, the heading
-    # paragraph, and the template tables per section.
+    # paragraph, ALL paragraphs (for exclusion), and the template tables.
     sec_idx = -1
     guidance_by_section: dict[int, list[Paragraph]] = {}
     heading_by_section: dict[int, Paragraph] = {}
     tables_by_section: dict[int, list[Table]] = {}
+    paras_by_section: dict[int, list[Paragraph]] = {}
 
     for block in iter_block_items(doc):
         if isinstance(block, Table):
@@ -91,6 +96,8 @@ def build_report(
             sec_idx += 1
             heading_by_section[sec_idx] = p
             continue
+        if sec_idx >= 0:
+            paras_by_section.setdefault(sec_idx, []).append(p)
         if sec_idx < 0 or style in SKIP_STYLES or not text:
             continue
 
@@ -100,9 +107,21 @@ def build_report(
 
     # Second pass: fill tables, rename placeholder headings, insert prose, remove
     # guidance. Iterate a stable snapshot so edits don't disturb traversal.
-    stats = {"authored": 0, "placeholder": 0, "skipped": 0, "comments": 0, "tables_filled": 0}
+    stats = {"authored": 0, "placeholder": 0, "skipped": 0, "comments": 0,
+             "tables_filled": 0, "excluded": 0}
 
     for idx, section in enumerate(sections):
+        if exclude_keys and section.key in exclude_keys:
+            # Section does not apply to this study: remove it wholesale.
+            if idx in heading_by_section:
+                _delete_paragraph(heading_by_section[idx])
+            for p in paras_by_section.get(idx, []):
+                _delete_paragraph(p)
+            for t in tables_by_section.get(idx, []):
+                t._element.getparent().remove(t._element)
+            stats["excluded"] += 1
+            continue
+
         gen = generated.get(section.key)
         g_paras = guidance_by_section.get(idx, [])
         sec_tables = tables_by_section.get(idx, [])

@@ -17,37 +17,19 @@ from .ingestion.sources import (
 )
 from .ingestion.template_parser import parse_template
 from .knowledge.embeddings import TitanEmbedder
-from .knowledge.graph_store import GraphStore
-from .knowledge.retriever import HybridRetriever
+from .knowledge.retriever import VectorRetriever
 from .knowledge.vector_store import VectorStore
-
-
-def _make_graph(settings: Settings):
-    """Pick the knowledge-graph backend: persistent Neo4j or in-memory networkx."""
-    if settings.graph_backend.lower() == "neo4j":
-        from .knowledge.neo4j_store import Neo4jGraphStore
-
-        return Neo4jGraphStore(settings)
-    return GraphStore()
 from .models import Chunk, GeneratedSection, SectionSpec
 
 
 def ingest(settings: Settings, verbose: bool = True) -> list[Chunk]:
-    """Read sources, embed, build vector store + knowledge graph."""
+    """Read sources, embed, build the vector store."""
     settings.ensure_dirs()
     chunks = load_all_sources(
         settings.study_dir, settings.chunk_target_tokens, settings.chunk_overlap_tokens
     )
     if verbose:
         print(f"[ingest] loaded {len(chunks)} chunks from {settings.study_dir}")
-
-    graph = _make_graph(settings)
-    graph.build(chunks)  # also backfills chunk.entities
-    graph.save(settings.graph_path)
-    if verbose:
-        nodes, edges = graph.stats()
-        print(f"[ingest] graph ({settings.graph_backend}): {nodes} nodes, {edges} edges")
-    graph.close()
 
     # Persist chunks (JSON + readable preview) BEFORE vectorization so the
     # chunking can be inspected before anything is embedded/indexed.
@@ -72,14 +54,12 @@ def ingest(settings: Settings, verbose: bool = True) -> list[Chunk]:
     return chunks
 
 
-def _load_retriever(settings: Settings) -> HybridRetriever:
+def _load_retriever(settings: Settings) -> VectorRetriever:
     chunks = load_chunks(settings.sources_cache)
     by_id = {c.id: c for c in chunks}
     store = VectorStore(settings.lancedb_uri, settings.lancedb_table, settings.embed_dim)
-    graph = _make_graph(settings)
-    graph.load(settings.graph_path)  # no-op for Neo4j (already connected)
     embedder = TitanEmbedder(settings.embed_model, settings.aws_region, settings.embed_dim)
-    return HybridRetriever(settings, store, graph, embedder, by_id)
+    return VectorRetriever(settings, store, embedder, by_id)
 
 
 def generate(

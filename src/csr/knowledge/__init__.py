@@ -1,1 +1,1 @@
-"""Hybrid knowledge layer: vector store (LanceDB) + knowledge graph (networkx)."""
+"""Knowledge layer: LanceDB vector store + full-text search (pure vector RAG)."""
