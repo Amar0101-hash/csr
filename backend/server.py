@@ -683,30 +683,48 @@ def audit_all():
 
 @app.get("/api/numbers-audit")
 def numbers_audit():
-    """Every material number in every generated section, with the source that
-    supports it (or flagged unsupported). The document-wide fact check."""
+    """Every material number in every generated section, marked supported or
+    unsupported. Grounding uses the SAME basis as generation-time verification —
+    each number is checked against the section's ACTUAL retrieved/cited sources
+    (verify_section stored the result), not the graph's FILLED_BY links. This is
+    why a number cited & highlighted in the source view reads as supported here."""
     from vector_rag.generation.verify import _numbers, _is_material
     rows = _run(f"""
         MATCH (t:{L_TSECTION})
         WHERE t.content IS NOT NULL AND t.generate AND NOT coalesce(t.excluded, false)
-        OPTIONAL MATCH (t)-[:FILLED_BY]->(s:RagSection)
         RETURN t.number AS number, t.title AS title, t.content AS content,
-               collect(CASE WHEN s IS NULL THEN NULL ELSE
-                       {{doc: s.doc, path: s.path, text: s.text}} END) AS sources
+               t.verification AS verification, t.citations AS citations
     """)
     rows.sort(key=lambda r: section_sort_key(r["number"]))
     sections, total, supported_total = [], 0, 0
     for r in rows:
-        sources = [s for s in r["sources"] if s]
+        try:
+            ver = json.loads(r["verification"]) if r["verification"] else {}
+        except Exception:
+            ver = {}
+        try:
+            cites = json.loads(r["citations"]) if r["citations"] else []
+        except Exception:
+            cites = []
+        has_ver = "num_numbers" in ver
+        unsupported_set = set(ver.get("unsupported_numbers", []))
+
+        def _doc_for(n):  # best-effort: which cited source quotes this number
+            for c in cites:
+                if n in (c.get("quote", "") or ""):
+                    return c.get("doc")
+            return None
+
         seen, nums = set(), []
         for n in _numbers(r["content"]):
             if not _is_material(n) or n in seen:
                 continue
             seen.add(n)
-            src = next((s for s in sources if n in s["text"]), None)
-            nums.append({"value": n, "supported": src is not None,
-                         "doc": src["doc"] if src else None,
-                         "path": src["path"] if src else None})
+            # authoritative: verification's unsupported list (checked vs real
+            # sources). Fallback for pre-verification content: cited quotes.
+            supported = (n not in unsupported_set) if has_ver else (_doc_for(n) is not None)
+            nums.append({"value": n, "supported": supported,
+                         "doc": _doc_for(n) if supported else None})
         if not nums:
             continue
         ok = sum(1 for x in nums if x["supported"])

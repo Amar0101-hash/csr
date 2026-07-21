@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, DOC_COLORS } from '../api'
 import SourcePanel from './SourcePanel'
 import LineageGraph from './LineageGraph'
@@ -18,6 +18,14 @@ export default function SectionDetail({ number, method = 'hybrid', methods = [],
   const [srcView, setSrcView] = useState(null)   // {doc, path} -> source comparison modal
   const [secMethod, setSecMethod] = useState(method) // per-section retrieval strategy
   const [editing, setEditing] = useState(false)  // content view: rendered vs raw editor
+  const promptRef = useRef(null)
+
+  // auto-grow the custom-instruction textarea to fit its content
+  const growPrompt = () => {
+    const t = promptRef.current
+    if (t) { t.style.height = 'auto'; t.style.height = `${Math.min(220, Math.max(64, t.scrollHeight))}px` }
+  }
+  useEffect(() => { growPrompt() }, [prompt, number])
 
   const load = () =>
     Promise.all([api.section(number), api.audit(number), api.prompts(number)])
@@ -114,8 +122,10 @@ export default function SectionDetail({ number, method = 'hybrid', methods = [],
           )}
         </div>
         <div className="toolbar">
-          <textarea className="prompt" placeholder="Optional: custom instruction to regenerate (e.g. 'Summarise in 3 sentences and emphasise the noninferiority conclusion')"
-                    value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <textarea ref={promptRef} className="prompt"
+                    placeholder="Optional: custom instruction to regenerate — e.g. 'Summarise in 3 sentences and emphasise the noninferiority conclusion'"
+                    value={prompt}
+                    onChange={(e) => { setPrompt(e.target.value); growPrompt() }} />
           <select className="cmode" value={secMethod} disabled={busy}
                   title="Retrieval strategy for this regeneration"
                   onChange={(e) => setSecMethod(e.target.value)}>
