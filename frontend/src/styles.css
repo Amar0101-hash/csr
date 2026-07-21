@@ -218,6 +218,12 @@ mark.hl.demo{padding:0 6px}
 .ccol{background:var(--panel);border:1px solid var(--line);border-radius:12px;
       padding:14px;min-height:200px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
 .ccol.placeholder{opacity:.6;border-style:dashed;box-shadow:none}
+.ccol.highlight{border-color:#c7dbfc;box-shadow:0 0 0 1px #c7dbfc,0 1px 2px rgba(15,23,42,.05)}
+.ccol-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.provchip{font-size:10px;font-weight:650;padding:1px 7px;border-radius:6px;
+          background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+.provchip.multi{background:#dcfce7;border-color:#bbf7d0;color:#15803d}
+.provchip.graph{background:#ede9fe;border-color:#ddd6fe;color:#6d28d9}
 .ccol-head{margin-bottom:12px}
 .ccol-head h3{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.6px;
               color:var(--text);display:inline-block}

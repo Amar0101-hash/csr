@@ -1,9 +1,19 @@
 import { useState } from 'react'
 import { api, DOC_COLORS } from '../api'
 
-// Side-by-side retrieval comparison: Vector RAG (main app, LanceDB) vs
-// Graph RAG (prototype, Neo4j). Third column is a placeholder until the
-// proper hybrid retriever is built.
+// Side-by-side retrieval comparison of all three strategies for the same query:
+// Vector RAG (LanceDB dense+FTS) vs Graph RAG (Neo4j) vs Hybrid RAG (vector + FTS
+// + in-memory graph expansion, consensus-fused). Differences isolate the
+// retrieval mechanism so you can judge which surfaces the right sources.
+
+// Provenance chips are colour-coded; a multi-signal hit (e.g. "graph+vector")
+// is the hybrid's consensus advantage and gets a highlighted chip.
+function ProvChip({ p }) {
+  const multi = p && p.includes('+')
+  const graphOnly = p === 'graph'
+  const cls = 'provchip' + (multi ? ' multi' : graphOnly ? ' graph' : '')
+  return <span className={cls}>{p}</span>
+}
 
 function Hit({ h }) {
   return (
@@ -12,7 +22,7 @@ function Hit({ h }) {
         <span className="dot" style={{ background: DOC_COLORS[h.doc] || '#64748b' }} />
         <b>{h.doc}</b>
         <span className="role">{h.kind}</span>
-        {h.provenance && <span className="role">{h.provenance}</span>}
+        {h.provenance && <ProvChip p={h.provenance} />}
         <span className="score">{h.score}</span>
       </div>
       <div className="path">{h.path}</div>
@@ -21,15 +31,20 @@ function Hit({ h }) {
   )
 }
 
-function Column({ title, subtitle, data, cypherMode }) {
+function Column({ title, subtitle, data, cypherMode, highlight }) {
   return (
-    <div className="ccol">
+    <div className={'ccol' + (highlight ? ' highlight' : '')}>
       <div className="ccol-head">
         <h3>{title}</h3>
         <div className="ccol-sub">{subtitle}</div>
-        {data?.latency_ms != null && (
-          <span className="badge">{data.latency_ms} ms</span>
-        )}
+        <div className="ccol-badges">
+          {data?.latency_ms != null && <span className="badge">{data.latency_ms} ms</span>}
+          {data?.results && <span className="badge">{data.results.length} hits</span>}
+          {data?.consensus != null && data.consensus > 0 &&
+            <span className="badge ok">{data.consensus} multi-signal</span>}
+          {data?.graph_only != null && data.graph_only > 0 &&
+            <span className="badge">{data.graph_only} graph-only</span>}
+        </div>
       </div>
       {!data && <div className="empty small">Run a query to see results.</div>}
       {data?.error && <div className="cerr">{String(data.error)}</div>}
@@ -64,7 +79,7 @@ export default function Compare() {
     try {
       setRes(await api.compare(query.trim(), mode))
     } catch (e) {
-      setRes({ vector: { error: String(e) }, graph: { error: String(e) } })
+      setRes({ vector: { error: String(e) }, graph: { error: String(e) }, hybrid: { error: String(e) } })
     } finally {
       setBusy(false)
     }
@@ -103,13 +118,12 @@ export default function Compare() {
           data={res?.graph}
           cypherMode={mode === 'cypher'}
         />
-        <div className="ccol placeholder">
-          <div className="ccol-head">
-            <h3>Hybrid RAG</h3>
-            <div className="ccol-sub">Vector + graph, fused properly</div>
-          </div>
-          <div className="empty small">Coming soon — will be built after the two-way comparison.</div>
-        </div>
+        <Column
+          title="Hybrid RAG"
+          subtitle="Vector + FTS + in-memory graph expansion, consensus-fused (RRF)"
+          data={res?.hybrid}
+          highlight
+        />
       </div>
     </div>
   )

@@ -250,6 +250,7 @@ class CompareReq(BaseModel):
 
 
 _VECTOR_RETRIEVER = None  # lazy: needs the LanceDB index built by `csr ingest`
+_HYBRID_RETRIEVER = None
 
 
 def _vector_retriever():
@@ -260,16 +261,24 @@ def _vector_retriever():
     return _VECTOR_RETRIEVER
 
 
+def _hybrid_retriever():
+    global _HYBRID_RETRIEVER
+    if _HYBRID_RETRIEVER is None:
+        from hybrid_rag import build_hybrid_retriever
+        _HYBRID_RETRIEVER = build_hybrid_retriever(SETTINGS)
+    return _HYBRID_RETRIEVER
+
+
 @app.post("/api/compare")
 def compare(req: CompareReq):
     """Run the same query through both retrieval systems, side by side.
 
     vector: the main app (LanceDB vector + full-text search, RRF fusion).
     graph:  the prototype (Neo4j) — native vector index, or LLM text-to-Cypher.
-    hybrid: placeholder until the proper hybrid retriever is built.
+    hybrid: vector + FTS + in-memory graph expansion, consensus-fused (RRF).
     """
     import time
-    out = {"query": req.query, "hybrid": None}
+    out = {"query": req.query}
 
     try:
         r = _vector_retriever()
@@ -311,6 +320,27 @@ def compare(req: CompareReq):
             }
     except Exception as e:
         out["graph"] = {"error": f"{type(e).__name__}: {e}"}
+
+    try:
+        hr = _hybrid_retriever()
+        t0 = time.perf_counter()
+        hits = hr.retrieve(req.query, k=req.k)
+        results = [
+            {"id": h.chunk.id, "doc": h.chunk.doc, "kind": h.chunk.kind,
+             "path": h.chunk.section_path, "preview": h.chunk.text[:280],
+             "score": round(h.score, 4), "provenance": h.provenance}
+            for h in hits
+        ]
+        # consensus = surfaced by more than one signal (the hybrid's advantage);
+        # graph_only = chunks a pure vector retriever would have missed.
+        out["hybrid"] = {
+            "latency_ms": round((time.perf_counter() - t0) * 1000),
+            "results": results,
+            "consensus": sum(1 for r in results if "+" in r["provenance"]),
+            "graph_only": sum(1 for r in results if r["provenance"] == "graph"),
+        }
+    except Exception as e:
+        out["hybrid"] = {"error": f"{type(e).__name__}: {e}"}
 
     return out
 
