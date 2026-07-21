@@ -5,6 +5,7 @@ export const api = {
   sections: () => fetch('/api/sections').then(j),
   section: (n) => fetch(`/api/sections/${encodeURIComponent(n)}`).then(j),
   graph: (n) => fetch(`/api/graph/${encodeURIComponent(n)}`).then(j),
+  concepts: (n) => fetch(`/api/concepts/${encodeURIComponent(n)}`).then(j),
   coverage: () => fetch('/api/coverage').then(j),
   generate: (n, custom_prompt, preview = false, method = 'hybrid') =>
     fetch(`/api/sections/${encodeURIComponent(n)}/generate`, {

@@ -6,6 +6,7 @@ generation)  ·  frontend/ (web UI).
     python graphrag_prototype/demo.py build         # dataingestion: study graph + vectors
     python graphrag_prototype/demo.py enrich        # dataingestion: readable captions
     python graphrag_prototype/demo.py template      # dataingestion: template + FILLED_BY
+    python graphrag_prototype/demo.py concepts      # dataingestion: concept graph (hybrid signal)
     python graphrag_prototype/demo.py search "<q>"   # backend: vector search in Neo4j
     python graphrag_prototype/demo.py ask "<q>"      # backend: LLM writes+runs Cypher
     python graphrag_prototype/demo.py fill 6.3.5     # backend: generate via traversal
@@ -42,6 +43,11 @@ def main() -> int:
     elif cmd == "coverage":
         from graph_rag.dataingestion.template_graph import coverage
         coverage()
+
+    elif cmd == "concepts":
+        from graph_rag.dataingestion.concept_graph import build_concepts, concept_report
+        build_concepts()
+        concept_report()
 
     elif cmd == "search":
         from graph_rag.retrieve import vector_search

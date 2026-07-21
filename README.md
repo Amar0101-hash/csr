@@ -12,7 +12,7 @@ with **source traceability** and **template-structure preservation**.
   three interchangeable retrievers so they can be judged head-to-head —
   **Vector** (LanceDB dense + full-text, RRF), **Graph** (Neo4j knowledge graph +
   `FILLED_BY` links + text-to-Cypher), and **Hybrid** (vector + FTS + Neo4j
-  entity-graph expansion, consensus-fused). The goal: an endpoint *defined* in the
+  concept-graph expansion, consensus-fused). The goal: an endpoint *defined* in the
   SAP, *described* in the Protocol, and *measured* in a TFL table is pulled
   together for one section.
 - **Grounded + verified**: every section is authored only from retrieved source
@@ -32,7 +32,7 @@ vector_rag/    # Vector RAG + the shared foundation (models, ingestion, embeddin
                #   generation, .docx assembly) + the `csr` CLI        -> vector_rag/README.md
 graph_rag/     # Graph RAG: Neo4j knowledge graph, FILLED_BY linking,
                #   text-to-Cypher, the `graph_rag.demo` CLI           -> graph_rag/README.md
-hybrid_rag/    # Hybrid RAG: vector + FTS + Neo4j entity-graph expansion, RRF fusion
+hybrid_rag/    # Hybrid RAG: vector + FTS + Neo4j concept-graph expansion, RRF fusion
                #                                                       -> hybrid_rag/README.md
 backend/       # FastAPI web layer: API, generation orchestration, version/approval
                #                                                       -> backend/README.md
@@ -103,6 +103,7 @@ LanceDB index (`uv run csr ingest`).
 # one-time: build the graph + template links (Neo4j)
 uv run python -m graph_rag.demo build
 uv run python -m graph_rag.demo template
+uv run python -m graph_rag.demo concepts   # concept graph — the hybrid's graph signal
 
 # start the web app  ->  http://localhost:8000
 uv run python -m backend.server

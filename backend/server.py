@@ -131,6 +131,36 @@ def graph(number: str):
     return section_view(number)
 
 
+@app.get("/api/concepts/{number}")
+def concept_bridges(number: str):
+    """Explainability for the hybrid's graph half: which clinical CONCEPTS tie this
+    section's sources together across documents, and what role each source plays
+    (DEFINES / DESCRIBES / MEASURES). A concept that appears with >1 role is a real
+    cross-document bridge — the exact signal concept-graph expansion rewards."""
+    rows = _run(
+        f"MATCH (t:{L_TSECTION} {{number: $n}})-[:FILLED_BY]->(s:RagSection) "
+        "WITH collect(DISTINCT s.id) AS ids "
+        "MATCH (s:RagSection)-[m:MENTIONS_CONCEPT]->(c:RagConcept) "
+        "WHERE s.id IN ids "
+        "RETURN c.key AS key, c.name AS name, c.kind AS kind, c.freq AS freq, "
+        "m.role AS role, s.doc AS doc, s.path AS path",
+        n=number,
+    )
+    by_concept: dict[str, dict] = {}
+    for r in rows:
+        c = by_concept.setdefault(r["key"], {
+            "name": r["name"], "kind": r["kind"], "freq": r["freq"] or 0, "roles": {}})
+        c["roles"].setdefault(r["role"], []).append({"doc": r["doc"], "path": r["path"]})
+    # only true bridges (>1 distinct document role); rarer concepts first (more
+    # specific link), then more roles bridged.
+    bridges = [
+        {"key": k, **v, "n_roles": len(v["roles"])}
+        for k, v in by_concept.items() if len(v["roles"]) > 1
+    ]
+    bridges.sort(key=lambda b: (-b["n_roles"], b["freq"]))
+    return {"number": number, "bridges": bridges}
+
+
 # ---------- full-document generation (background job with progress) ----------
 
 _GEN_JOB = {"running": False, "done": 0, "total": 0, "current": [],
@@ -428,7 +458,7 @@ def compare(req: CompareReq):
 
     vector: the main app (LanceDB vector + full-text search, RRF fusion).
     graph:  the prototype (Neo4j) — native vector index, or LLM text-to-Cypher.
-    hybrid: vector + FTS + in-memory graph expansion, consensus-fused (RRF).
+    hybrid: vector + FTS + concept-graph expansion, consensus-fused (RRF).
     """
     import time
     out = {"query": req.query}

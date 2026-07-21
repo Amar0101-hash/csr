@@ -5,6 +5,7 @@ import LineageGraph from './LineageGraph'
 import SourceViewer from './SourceViewer'
 import RenderedContent from './RenderedContent'
 import PromptCard from './PromptCard'
+import ConceptBridges from './ConceptBridges'
 
 export default function SectionDetail({ number, method = 'hybrid', methods = [], onChanged }) {
   const [d, setD] = useState(null)
@@ -227,6 +228,13 @@ export default function SectionDetail({ number, method = 'hybrid', methods = [],
       <div className="card">
         <h3>Source traceability (FILLED_BY)</h3>
         <SourcePanel sources={d.sources} />
+      </div>
+
+      <div className="card">
+        <h3>Concept bridges &nbsp;·&nbsp; how the graph links these sources across documents
+          <span className="status">the hybrid's graph signal, made explicit</span></h3>
+        <ConceptBridges number={number}
+                        onOpenSource={(doc, path) => setSrcView({ doc, path })} />
       </div>
 
       <div className="card">

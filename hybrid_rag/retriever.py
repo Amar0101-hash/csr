@@ -8,14 +8,20 @@ above either signal alone. That cross-document agreement is exactly the
 consistency a CSR needs, and it's what a pure vector or pure graph retriever each
 miss on their own.
 
-Graph signal — clinical-entity co-mention expansion in Neo4j: two source sections
-are related when they mention the same clinical entities (an endpoint *defined* in
-the SAP, *described* in the Protocol, and *measured* in a TFL table all mention the
-endpoint). Starting from the top vector+FTS seeds, we traverse
-    (seed:Chunk)-[:MENTIONS]->(e:Entity)<-[:MENTIONS]-(other:Chunk)
-weighting each shared entity by rarity (1/(1+frequency)) so specific clinical
-terms count for more than ubiquitous ones. Chunk ids are content hashes shared by
-LanceDB and Neo4j, so seeds map straight across.
+Graph signal — study **concept** bridging in Neo4j: source sections are related
+when they touch the same clinical CONCEPT (an endpoint, analysis set or visit),
+and the graph records *what each section does* for that concept via the edge role
+— DEFINES (SAP), DESCRIBES (Protocol/MOP), MEASURES (a TFL table). Starting from
+the top vector+FTS seeds we traverse
+    (seed:RagSection)-[:MENTIONS_CONCEPT]->(c:RagConcept)<-[:MENTIONS_CONCEPT]-(other)
+scoring each bridge by concept rarity (1/(1+freq)) so specific concepts count for
+more than ubiquitous ones, and adding a bonus when `other` plays a role the seeds
+don't (e.g. a seed defines the endpoint, `other` measures it) — that role
+complementarity is precisely the cross-document consistency a CSR needs, and what
+raw co-occurrence could not see. RagSection ids are content hashes shared by
+LanceDB and Neo4j, so seeds map straight across. Requires the concept graph
+(`python -m graph_rag.dataingestion.concept_graph`); absent it, the hybrid
+degrades gracefully to vector+FTS.
 
 The output type is vector_rag's RetrievedChunk, so the hybrid drops straight into
 the existing grounded-generation writer.
@@ -28,18 +34,26 @@ from vector_rag.config import Settings
 from vector_rag.models import Chunk
 from vector_rag.knowledge.embeddings import TitanEmbedder
 from vector_rag.knowledge.vector_store import VectorStore
-from vector_rag.knowledge.retriever import RetrievedChunk
+from vector_rag.knowledge.retriever import RetrievedChunk, demote_parent_overviews
 
 from graph_rag.gr_config import SETTINGS as GR
 
 
-# Cross-document neighbours by shared clinical entities, ranked by summed entity
-# rarity — rarer (more specific) shared terms make a stronger link.
+# Cross-document neighbours via shared clinical CONCEPTS. Each bridge is weighted
+# by concept rarity (rarer concept = stronger, more specific link) and gets a 1.5x
+# bonus when the neighbour plays a document role the seeds don't already cover
+# (definition <-> description <-> measurement) — surfacing the missing view of a
+# concept the seeds only partially describe.
 _EXPAND = """
-MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)<-[:MENTIONS]-(o:Chunk)
-WHERE c.id IN $seeds AND NOT o.id IN $seeds
-WITH o.id AS id, e, count { (e)<-[:MENTIONS]-(:Chunk) } AS ecount
-RETURN id, sum(1.0 / (1.0 + ecount)) AS score
+MATCH (seed:RagSection)-[ms:MENTIONS_CONCEPT]->(c:RagConcept)<-[mo:MENTIONS_CONCEPT]-(o:RagSection)
+WHERE seed.id IN $seeds AND NOT o.id IN $seeds
+WITH o.id AS id, c, mo.role AS orole, collect(DISTINCT ms.role) AS sroles,
+     coalesce(c.freq, count { (c)<-[:MENTIONS_CONCEPT]-(:RagSection) }) AS cfreq
+WITH id, sum(
+       (1.0 / (1.0 + cfreq)) *
+       (CASE WHEN NOT orole IN sroles THEN 1.5 ELSE 1.0 END)
+     ) AS score
+RETURN id, score
 ORDER BY score DESC
 LIMIT $limit
 """
@@ -81,8 +95,8 @@ class HybridRetriever:
         self.n_seeds = n_seeds
 
     def _graph_expand(self, seed_ids: list[str], limit: int) -> list[str]:
-        """Co-fill neighbours of the seeds, ranked, from Neo4j. Returns [] if the
-        template graph isn't built or Neo4j is unreachable — the hybrid then
+        """Concept-bridged neighbours of the seeds, ranked, from Neo4j. Returns []
+        if the concept graph isn't built or Neo4j is unreachable — the hybrid then
         degrades gracefully to vector+FTS."""
         if not seed_ids:
             return []
@@ -128,6 +142,9 @@ class HybridRetriever:
             expanded = self._graph_expand(seeds[: self.n_seeds], limit=k * 2)
             for rank, cid in enumerate(expanded):
                 add(cid, self.w_graph * _rrf(rank), "graph")
+
+        # Prefer the specific subsection over its parent-overview section.
+        demote_parent_overviews(score, self.by_id)
 
         results: list[RetrievedChunk] = []
         for cid, sc in sorted(score.items(), key=lambda kv: kv[1], reverse=True):

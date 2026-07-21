@@ -347,3 +347,26 @@ mark.hl.demo{padding:0 6px}
 .cypher{background:#f1f5f9;border:1px solid var(--line);border-radius:8px;
         padding:10px;font:12px/1.5 ui-monospace,Consolas,monospace;color:#334155;
         white-space:pre-wrap;overflow:auto;max-height:300px;margin:0}
+
+/* --- concept bridges (hybrid graph-signal explainability) --- */
+.cbridges-lead{color:var(--muted);font-size:12.5px;line-height:1.5;margin-bottom:12px}
+.cbridge{border:1px solid var(--line);border-radius:var(--r2);background:var(--panel2);
+         padding:10px 12px;margin-bottom:10px;box-shadow:var(--sh1)}
+.cbridge-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cbridge-name{font-weight:650;font-size:13px;color:var(--text)}
+.cbridge-kind{font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+              color:#6d28d9;background:#ede9fe;border:1px solid #ddd6fe;
+              border-radius:999px;padding:1px 8px}
+.cbridge-roles{margin-left:auto;font-size:11.5px;color:var(--muted)}
+.cbridge-roles-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+                    gap:10px}
+.cbridge-col{background:var(--panel);border:1px solid var(--line);border-radius:var(--r3);
+             padding:8px}
+.cbridge-role{font-size:10.5px;text-transform:uppercase;letter-spacing:.7px;
+              color:var(--muted);font-weight:650;margin-bottom:6px}
+.cbridge-src{display:flex;align-items:center;gap:6px;width:100%;text-align:left;
+             background:none;border:none;padding:3px 4px;border-radius:6px;cursor:pointer;
+             font-size:12px;color:var(--text)}
+.cbridge-src:hover{background:var(--accent-bg)}
+.cbridge-doc{font-weight:600}
+.cbridge-path{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

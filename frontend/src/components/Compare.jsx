@@ -120,7 +120,7 @@ export default function Compare() {
         />
         <Column
           title="Hybrid RAG"
-          subtitle="Vector + FTS + in-memory graph expansion, consensus-fused (RRF)"
+          subtitle="Vector + FTS + concept-graph expansion, consensus-fused (RRF)"
           data={res?.hybrid}
           highlight
         />
