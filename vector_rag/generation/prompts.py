@@ -27,6 +27,13 @@ ABSOLUTE RULES — follow every one:
    section body only, as clean prose paragraphs (and short lists where natural).
 6. SCOPE: Write only this section. Do not write other sections or a summary of
    the whole report unless this IS the summary section.
+7. BREVITY — this is critical: write like a professional medical writer, who is
+   terse. Use the FEWEST sentences that fully cover the required facts. Most
+   sections are 1–3 short paragraphs; many are a few sentences. State each fact
+   once and stop. Do NOT: restate or paraphrase the guidance, add background or
+   rationale not asked for, add caveats/transitions/filler, or explain what the
+   section is about. If the sources contain little, write little — do not pad to
+   look complete. A precise 3-sentence section beats an over-written page.
 
 JSON SAFETY: Inside any string value, use single quotes (') for quoted phrases
 (e.g. study titles, verbatim terms); never place an unescaped double-quote (")
@@ -148,6 +155,12 @@ def build_user_prompt(
             f"whether the pass/fail or hypothesis criterion was met — strictly from the "
             f"excerpts. If the named endpoint's numeric results are not in the excerpts, say so.\n\n"
         )
+    # Section-specific structured-table directives. Some sections the human writer
+    # renders as a figure/table (e.g. the subject-disposition CONSORT flow) — since
+    # we cannot fill an embedded image, we emit the same content as a real table
+    # (markdown -> rendered Word table via the block renderer).
+    table_directive = _TABLE_DIRECTIVES.get(section.number or "", "")
+
     if section.guidance_inherited:
         guidance = "(guidance inherited from the parent Results section:)\n" + guidance
     iso = ""
@@ -159,9 +172,25 @@ def build_user_prompt(
         f"{focus}"
         f"TEMPLATE GUIDANCE (what this section must contain — do NOT copy this text "
         f"verbatim; use it to decide what to write):\n{guidance}\n\n"
+        f"{table_directive}"
         f"{iso}"
         f"{style_block}"
         f"SOURCE EXCERPTS (your ONLY permitted facts; cite by [S#]):\n\n{excerpts}\n"
         f"Now author the section body as grounded JSON.",
         label_map,
     )
+
+
+# Sections that must include a specific structured table, emitted as a markdown
+# table inside "paragraphs" (rendered to a real Word table). Grounded numbers only.
+_TABLE_DIRECTIVES: dict[str, str] = {
+    "6.1.1": (
+        "REQUIRED TABLE — subject disposition. In addition to a brief prose "
+        "sentence, include a markdown table (pipe syntax) summarising subject flow, "
+        "with columns: Category | Subjects (N) | Eyes (n). Include a row for each of: "
+        "Enrolled (signed consent), Screen failures / excluded, Treated (received "
+        "investigational device), Discontinued (give the primary reason), Completed. "
+        "Use ONLY counts found verbatim in the source excerpts; leave a cell blank if "
+        "a value is not supported. Do not invent totals.\n\n"
+    ),
+}

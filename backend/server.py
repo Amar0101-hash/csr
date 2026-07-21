@@ -106,6 +106,21 @@ def set_excluded(number: str, req: ExcludeReq):
     return {"ok": True, "number": number, "excluded": req.excluded}
 
 
+@app.get("/api/template")
+def template_intelligence():
+    """The extracted template intelligence: per-section guidance, form fields with
+    their instructions, figure flags, structure. Also persisted to
+    output/template.json so it's an inspectable artifact."""
+    from vector_rag.ingestion.template_parser import parse_template, template_section_meta
+    meta = [template_section_meta(s) for s in parse_template(SETTINGS.template_path)]
+    try:
+        (SETTINGS.output_dir / "template.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    except Exception:
+        pass
+    return meta
+
+
 @app.get("/api/coverage")
 def coverage():
     return coverage_view()
@@ -124,7 +139,7 @@ _GEN_LOCK = threading.Lock()
 
 
 class FullGenReq(BaseModel):
-    effort: str = "medium"
+    effort: str = "low"      # low keeps per-run Bedrock cost down
     workers: int = 4
     method: str = "hybrid"  # vector | graph | hybrid
 
@@ -133,12 +148,16 @@ def _run_full_generation(effort: str, workers: int, method: str = "hybrid") -> N
     from concurrent.futures import ThreadPoolExecutor
     from graph_rag.generate import _spec_map
 
+    from vector_rag.generation.prompts import FORM_FILL_KEYS
     try:
         excluded = {r["n"] for r in _run(
             f"MATCH (t:{L_TSECTION}) WHERE coalesce(t.excluded, false) "
             "RETURN t.number AS n")}
+        # include form-fill sections (e.g. Title Page) even if generate=False —
+        # they still need their identification/synopsis table filled.
         specs = [s for s in _spec_map().values()
-                 if getattr(s, "generate", False) and s.number not in excluded]
+                 if (getattr(s, "generate", False) or s.key in FORM_FILL_KEYS)
+                 and s.number not in excluded]
         specs.sort(key=lambda s: section_sort_key(s.number))
         with _GEN_LOCK:
             _GEN_JOB["total"] = len(specs)
@@ -148,11 +167,14 @@ def _run_full_generation(effort: str, workers: int, method: str = "hybrid") -> N
                 _GEN_JOB["current"].append(spec.number)
             try:
                 gs = author_section_method(spec.number, method=method, effort=effort)
-                if gs.paragraphs:
+                if gs.paragraphs or gs.table_fills:
                     cites = [{"doc": c.doc, "path": c.section_path, "quote": c.quote}
                              for c in gs.citations]
                     _persist(spec.number, "\n\n".join(gs.paragraphs), cites,
-                             gs.verification, bump=False, method=method)
+                             gs.verification, bump=False, method=method,
+                             heading_override=gs.heading_override,
+                             table_fills=[tf.__dict__ for tf in gs.table_fills])
+                    _write_section_json(spec.number, gs, method)
                 else:
                     with _GEN_LOCK:
                         _GEN_JOB["errors"].append(f"§{spec.number}: {gs.notes or 'no content'}")
@@ -273,6 +295,7 @@ def _hybrid_retriever():
 
 
 _AUTHOR_CLIENT = None
+_STYLE_REF = None
 
 
 def _author_client():
@@ -283,35 +306,105 @@ def _author_client():
     return _AUTHOR_CLIENT
 
 
+def _style_ref():
+    """The prior human-authored CSR, as masked few-shot exemplars — so generated
+    sections mirror the medical writer's structure and BREVITY."""
+    global _STYLE_REF
+    if _STYLE_REF is None and SETTINGS.use_style_reference and SETTINGS.style_reference.exists():
+        from vector_rag.generation.style_ref import StyleReference
+        _STYLE_REF = StyleReference(SETTINGS.style_reference)
+    return _STYLE_REF
+
+
+class _GraphRetriever:
+    """Adapter that exposes the graph's FILLED_BY sources through the standard
+    retriever interface, so graph mode plugs into the same prose + form-fill path
+    as vector/hybrid. Returns the section's linked sources regardless of query."""
+
+    def __init__(self, number: str):
+        self.number = number
+
+    def retrieve(self, query, doc_types=None, k=None, guarantee_tables=None):
+        from vector_rag.models import Chunk
+        from vector_rag.knowledge.retriever import RetrievedChunk
+        rows = _run(
+            f"MATCH (t:{L_TSECTION} {{number: $n}})-[f:FILLED_BY]->(s:RagSection) "
+            "RETURN s.id AS id, s.doc AS doc, s.path AS path, s.text AS text, "
+            "s.kind AS kind, f.score AS score ORDER BY f.score DESC LIMIT 14",
+            n=self.number)
+        return [
+            RetrievedChunk(
+                Chunk(id=r["id"], doc=r["doc"],
+                      doc_type=("tfl" if str(r["doc"]).startswith("tfl") else r["doc"]),
+                      section_path=r["path"], text=r["text"], kind=r["kind"]),
+                r["score"] or 0.0, "graph")
+            for r in rows
+        ]
+
+
+def _retriever_for(method: str, number: str):
+    if method == "graph":
+        return _GraphRetriever(number)
+    if method == "vector":
+        return _vector_retriever()
+    return _hybrid_retriever()
+
+
 def author_section_method(number: str, method: str = "hybrid",
                           custom_prompt: str | None = None, effort: str = "medium"):
-    """Author a section with the chosen retrieval strategy. The generation core
-    (prompt, LLM call, verification) is shared across all three — only retrieval
-    differs — so the three modes are directly comparable.
-
-      vector: LanceDB dense + FTS (RRF fusion)
-      graph:  Neo4j FILLED_BY sources for this template section
-      hybrid: vector + FTS + Neo4j entity-graph expansion, consensus-fused
+    """Author a section with the chosen retrieval strategy, respecting the
+    template's structure rules: TABLE_ONLY sections (Title Page, Summary) are
+    rendered ONLY as their filled template table (no loose prose); FORM_FILL
+    sections also fill their identification/synopsis table. Only retrieval differs
+    across vector / graph / hybrid, so the three modes stay comparable.
     """
-    from graph_rag.generate import (author_section as graph_author,
-                                     author_from_retrieved, _spec_map)
-    SETTINGS.effort = effort
-    if method == "graph":
-        return graph_author(number, custom_prompt=custom_prompt, effort=effort)
+    from graph_rag.generate import author_from_retrieved, _spec_map
+    from vector_rag.models import GeneratedSection
+    from vector_rag.generation.prompts import (build_query, doc_types_for,
+                                               guaranteed_tables_for,
+                                               FORM_FILL_KEYS, TABLE_ONLY_KEYS)
+    from vector_rag.generation.table_fill import FormFiller
 
+    SETTINGS.effort = effort
     spec = _spec_map().get(number)
     if spec is None:
-        from vector_rag.models import GeneratedSection
         return GeneratedSection(key=number, title=number, paragraphs=[],
                                 notes="Unknown section.", verification={})
-    from vector_rag.generation.prompts import (build_query, doc_types_for,
-                                               guaranteed_tables_for)
-    retriever = _hybrid_retriever() if method == "hybrid" else _vector_retriever()
-    query = build_query(spec)
-    retrieved = retriever.retrieve(query, doc_types=doc_types_for(spec),
-                                   guarantee_tables=guaranteed_tables_for(spec))
-    return author_from_retrieved(spec, retrieved, _author_client(),
-                                 custom_prompt=custom_prompt, method=method)
+
+    retriever = _retriever_for(method, number)
+    doc_types = doc_types_for(spec)
+    do_prose = spec.generate and spec.key not in TABLE_ONLY_KEYS
+    do_forms = spec.key in FORM_FILL_KEYS
+
+    gen = GeneratedSection(key=spec.key, title=spec.title, paragraphs=[],
+                           verification={"grounded": True, "unsupported_count": 0})
+
+    if do_prose:
+        retrieved = retriever.retrieve(build_query(spec), doc_types=doc_types,
+                                       guarantee_tables=guaranteed_tables_for(spec))
+        exemplar = None
+        if _style_ref() is not None:
+            exemplar = _style_ref().exemplar_for(spec.number, spec.title)
+        pg = author_from_retrieved(spec, retrieved, _author_client(),
+                                   custom_prompt=custom_prompt, method=method,
+                                   style_exemplar=exemplar)
+        gen.paragraphs = pg.paragraphs
+        gen.citations = pg.citations
+        gen.verification = pg.verification
+        gen.notes = pg.notes
+        gen.heading_override = pg.heading_override
+        gen.used_chunk_ids = pg.used_chunk_ids
+
+    if do_forms:
+        try:
+            gen.table_fills = FormFiller(_author_client(), retriever,
+                                         style_ref=_style_ref()).fill_section(spec, doc_types)
+        except Exception as e:
+            gen.notes = (gen.notes or "") + f" [table-fill error: {type(e).__name__}]"
+
+    if not gen.paragraphs and not gen.table_fills and not gen.notes:
+        gen.notes = "No content generated."
+    return gen
 
 
 @app.post("/api/compare")
@@ -410,18 +503,38 @@ class AcceptReq(BaseModel):
 
 
 def _persist(number: str, content: str, citations=None, verification=None,
-             bump: bool = True, method: str | None = None):
+             bump: bool = True, method: str | None = None,
+             heading_override: str | None = None, table_fills=None):
     # Any content change un-approves the section and (by default) bumps the
     # document's minor version. The full-generation job bumps once at the end.
     # `method` (when given) records which retrieval strategy produced the content.
+    # heading_override / table_fills are structural fields the .docx assembler
+    # needs; persisting them keeps the downloaded report lossless.
     _run(f"""
         MATCH (t:{L_TSECTION} {{number: $n}})
         SET t.content = $c, t.citations = $cit, t.verification = $ver,
-            t.approved = false, t.method_used = coalesce($method, t.method_used)
+            t.approved = false, t.method_used = coalesce($method, t.method_used),
+            t.heading_override = coalesce($ho, t.heading_override),
+            t.table_fills = coalesce($tf, t.table_fills)
     """, n=number, c=content, cit=json.dumps(citations or []),
-        ver=json.dumps(verification or {}), method=method)
+        ver=json.dumps(verification or {}), method=method,
+        ho=heading_override,
+        tf=(json.dumps(table_fills) if table_fills is not None else None))
     if bump:
         _bump_minor()
+
+
+def _write_section_json(number: str, gs, method: str | None) -> None:
+    """Write the canonical per-section JSON (typed blocks) to output/sections/.
+    The inspectable, robust artifact that drives docx/PDF/eval."""
+    from vector_rag.section_doc import section_to_dict, section_filename
+    sec_dir = SETTINGS.output_dir / "sections"
+    sec_dir.mkdir(parents=True, exist_ok=True)
+    name = section_filename(number, gs.title)
+    (sec_dir / f"{name}.json").write_text(
+        json.dumps(section_to_dict(gs, number=number, method=method),
+                   ensure_ascii=False, indent=1),
+        encoding="utf-8")
 
 
 # ---------- document version & approval workflow ----------
@@ -500,7 +613,10 @@ def generate(number: str, req: GenReq):
     content = "\n\n".join(gs.paragraphs)
     cites = [{"doc": c.doc, "path": c.section_path, "quote": c.quote} for c in gs.citations]
     if not req.preview:
-        _persist(number, content, cites, gs.verification, method=req.method)
+        _persist(number, content, cites, gs.verification, method=req.method,
+                 heading_override=gs.heading_override,
+                 table_fills=[tf.__dict__ for tf in gs.table_fills])
+        _write_section_json(number, gs, req.method)
     return {"content": content, "citations": cites,
             "verification": gs.verification, "notes": gs.notes,
             "preview": req.preview, "method": req.method}
@@ -523,6 +639,37 @@ def save(number: str, req: SaveReq):
 
 
 # ---------- explainability APIs: audit trail, numbers audit, source viewer ----------
+
+# ---------- prompt versioning ----------
+
+def _section_title(number: str) -> str:
+    from graph_rag.generate import _spec_map
+    spec = _spec_map().get(number)
+    return spec.title if spec else number
+
+
+@app.get("/api/sections/{number}/prompts")
+def section_prompts(number: str):
+    """The versioned prompts sent for this section: the default (v0) and any
+    user-customised versions, with the active one flagged."""
+    from vector_rag.prompt_store import get_prompts
+    return get_prompts(SETTINGS, number, _section_title(number))
+
+
+class PromptActiveReq(BaseModel):
+    version_id: int
+
+
+@app.post("/api/sections/{number}/prompts/active")
+def set_prompt_active(number: str, req: PromptActiveReq):
+    """Pin a prompt version as active — it becomes the one used going forward."""
+    from vector_rag.prompt_store import set_active
+    data = set_active(SETTINGS, number, _section_title(number), req.version_id)
+    if data is None:
+        return JSONResponse({"error": "no prompts for this section"}, status_code=404)
+    log_event("prompt-set-active", number, version_id=req.version_id)
+    return data
+
 
 @app.get("/api/audit/{number}")
 def audit_for_section(number: str):

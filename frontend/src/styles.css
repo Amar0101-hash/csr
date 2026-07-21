@@ -18,6 +18,17 @@ header h1 span{color:var(--accent)}
 .hbtn:hover:not(:disabled){background:#1d4ed8}
 .gprog{height:4px;background:var(--panel2);flex-shrink:0}
 .gprog div{height:100%;background:var(--accent);transition:width .8s ease}
+/* --- inline generation status in the section list --- */
+.listgen{position:sticky;top:0;z-index:2;padding:10px 14px;background:#eff6ff;
+  border-bottom:1px solid #c7dbfc}
+.listgen-top{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:650;
+  color:var(--accent)}
+.listgen-pct{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600}
+.listgen-bar{height:6px;border-radius:5px;background:#dbeafe;margin-top:8px;overflow:hidden}
+.listgen-bar div{height:100%;background:linear-gradient(90deg,var(--accent),#60a5fa);
+  border-radius:5px;transition:width .5s ease}
+.srow.authoring{background:#eff6ff}
+.srow.authoring .stitle{color:var(--accent)}
 .tabs{display:flex;gap:6px;margin-left:auto}
 .tab{padding:6px 14px;border-radius:8px;cursor:pointer;color:var(--accent);
      font-size:13px;border:1px solid #c7dbfc;background:#fff;font-weight:600}
@@ -61,6 +72,8 @@ h2.sec-title{margin:0 0 6px;font-size:20px}
          cursor:pointer;height:auto;padding:0}
 .linkbtn:hover{text-decoration:underline}
 .badge.method{background:#ede9fe;border-color:#ddd6fe;color:#6d28d9;text-transform:capitalize}
+.prompt-instr{font-size:12.5px;color:var(--text);background:#f8fafc;border:1px solid var(--line);
+              border-radius:8px;padding:8px 11px;margin:8px 0}
 /* rendered section content (clean, like the source document) */
 .rendered{background:#f8fafc;border:1px solid var(--line);border-radius:8px;
           padding:16px 18px;max-height:460px;overflow:auto}

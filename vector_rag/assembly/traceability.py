@@ -54,16 +54,16 @@ def write_generated_preview(
             lines.append(f"> note: {gen.notes}")
         lines.append("")
         if gen.table_fills:
-            from ..generation.table_fill import classify_form, _is_skip
+            from ..ingestion.template_forms import is_skip as _is_skip
+
+            fields_by_table: dict[int, list] = {}
+            for f in (section.form_fields or []):
+                fields_by_table.setdefault(f.table_index, []).append(f)
 
             for tf in gen.table_fills:
                 lines.append(f"### Table (mode={tf.mode})")
                 # list every field with status, not just the filled ones
-                labels: list[str] = []
-                if 0 <= tf.table_index < len(section.tables):
-                    form = classify_form(section.tables[tf.table_index])
-                    if form:
-                        labels = form[1]
+                labels = [f.label for f in fields_by_table.get(tf.table_index, [])]
                 shown = set()
                 for label in labels:
                     if label in tf.values:

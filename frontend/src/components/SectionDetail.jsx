@@ -4,6 +4,7 @@ import SourcePanel from './SourcePanel'
 import LineageGraph from './LineageGraph'
 import SourceViewer from './SourceViewer'
 import RenderedContent from './RenderedContent'
+import PromptCard from './PromptCard'
 
 export default function SectionDetail({ number, method = 'hybrid', methods = [], onChanged }) {
   const [d, setD] = useState(null)
@@ -13,14 +14,22 @@ export default function SectionDetail({ number, method = 'hybrid', methods = [],
   const [busy, setBusy] = useState(false)
   const [proposal, setProposal] = useState(null) // previewed regeneration awaiting review
   const [audit, setAudit] = useState([])
+  const [prompts, setPrompts] = useState(null)   // versioned prompts for this section
   const [srcView, setSrcView] = useState(null)   // {doc, path} -> source comparison modal
   const [secMethod, setSecMethod] = useState(method) // per-section retrieval strategy
   const [editing, setEditing] = useState(false)  // content view: rendered vs raw editor
 
   const load = () =>
-    Promise.all([api.section(number), api.audit(number)]).then(([data, ev]) => {
-      setD(data); setBody(data.content || ''); setAudit(ev)
-    })
+    Promise.all([api.section(number), api.audit(number), api.prompts(number)])
+      .then(([data, ev, pr]) => {
+        setD(data); setBody(data.content || ''); setAudit(ev); setPrompts(pr)
+        // pre-fill the regenerate box with the active version's instruction, so a
+        // prompt the user liked persists as the default for the next run.
+        const act = (pr.versions || []).find((v) => v.id === pr.active)
+        setPrompt(act?.custom_instruction || '')
+      })
+
+  const pinPrompt = async (vid) => { await api.setActivePrompt(number, vid); await load() }
 
   useEffect(() => {
     if (!number) { setD(null); return }
@@ -165,6 +174,9 @@ export default function SectionDetail({ number, method = 'hybrid', methods = [],
           </div>
         </div>
       )}
+
+      <PromptCard data={prompts} onPin={pinPrompt}
+                  onUseInstruction={(ci) => { setPrompt(ci); setEditing(false) }} />
 
       <div className="card">
         <h3>Citations &nbsp;·&nbsp; grounded quotes behind this text ({(d.citations || []).length})</h3>

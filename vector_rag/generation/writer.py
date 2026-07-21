@@ -32,7 +32,7 @@ class SectionWriter:
         self.client = client
         self.retriever = retriever
         self.style_ref = style_ref
-        self.filler = FormFiller(client, retriever)
+        self.filler = FormFiller(client, retriever, style_ref=style_ref)
 
     def write(self, section: SectionSpec) -> GeneratedSection:
         doc_types = doc_types_for(section)

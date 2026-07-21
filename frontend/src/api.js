@@ -19,6 +19,13 @@ export const api = {
       body: JSON.stringify(payload),
     }).then(j),
   audit: (n) => fetch(`/api/audit/${encodeURIComponent(n)}`).then(j),
+  prompts: (n) => fetch(`/api/sections/${encodeURIComponent(n)}/prompts`).then(j),
+  setActivePrompt: (n, version_id) =>
+    fetch(`/api/sections/${encodeURIComponent(n)}/prompts/active`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version_id }),
+    }).then(j),
   numbersAudit: () => fetch('/api/numbers-audit').then(j),
   source: (doc) => fetch(`/api/source/${encodeURIComponent(doc)}`).then(j),
   save: (n, content) =>

@@ -56,20 +56,32 @@ def _persist_content(driver, number: str, gs: GeneratedSection) -> None:
 
 def author_from_retrieved(spec, retrieved, client: ClaudeClient,
                           custom_prompt: str | None = None,
-                          method: str = "graph") -> GeneratedSection:
+                          method: str = "graph",
+                          style_exemplar: str | None = None) -> GeneratedSection:
     """Shared generation core for all three retrieval strategies. Given a section
     spec and a list of RetrievedChunk (from vector / graph / hybrid retrieval),
     build the grounded prompt, author, verify, and attach citations. `method` is
-    recorded in the audit trail so runs are attributable to their retriever."""
+    recorded in the audit trail so runs are attributable to their retriever.
+    `style_exemplar` is the masked human-CSR section (few-shot) to mirror register
+    and brevity."""
     if not retrieved:
         return GeneratedSection(key=spec.key, title=spec.title, paragraphs=[],
                                 notes=f"No sources retrieved ({method}).",
                                 verification={"grounded": True})
-    user, label_map = build_user_prompt(spec, retrieved)
+    user, label_map = build_user_prompt(spec, retrieved, style_exemplar=style_exemplar)
     if custom_prompt and custom_prompt.strip():
         user += ("\n\nADDITIONAL AUTHOR INSTRUCTION (obey this while staying grounded "
                  f"in the sources above):\n{custom_prompt.strip()}\n")
     from graph_rag.audit import log_event
+    # persist the exact prompt sent, as a versioned artifact the UI exposes
+    try:
+        from vector_rag.prompt_store import save_prompt_version
+        save_prompt_version(SETTINGS, spec.number, spec.title,
+                            system=SYSTEM_WRITER, user=user,
+                            custom_instruction=(custom_prompt or ""),
+                            kind="prose", method=method)
+    except Exception:
+        pass
     audit_sources = [{"id": r.chunk.id, "doc": r.chunk.doc,
                       "path": r.chunk.section_path, "score": r.score,
                       "provenance": getattr(r, "provenance", method)}
@@ -209,7 +221,8 @@ def build_docx_from_cache(out_name: str = "GraphRAG_Report.docx"):
             rows = s.run(
                 f"MATCH (t:{L_TSECTION}) WHERE t.content IS NOT NULL "
                 "RETURN t.number AS number, t.content AS content, "
-                "t.citations AS citations, t.verification AS verification"
+                "t.citations AS citations, t.verification AS verification, "
+                "t.heading_override AS heading_override, t.table_fills AS table_fills"
             ).data()
             excluded_nums = {r["n"] for r in s.run(
                 f"MATCH (t:{L_TSECTION}) WHERE coalesce(t.excluded, false) "
@@ -231,6 +244,8 @@ def build_docx_from_cache(out_name: str = "GraphRAG_Report.docx"):
         if spec is None:
             continue
         cites = _loads(r["citations"], [])
+        from vector_rag.models import TableFill
+        tfs = _loads(r.get("table_fills"), [])
         generated[spec.key] = GeneratedSection(
             key=spec.key, title=spec.title,
             paragraphs=[p for p in (r["content"] or "").split("\n\n") if p.strip()],
@@ -238,6 +253,8 @@ def build_docx_from_cache(out_name: str = "GraphRAG_Report.docx"):
                                 section_path=c.get("path", ""), quote=c.get("quote", ""))
                        for c in cites],
             verification=_loads(r["verification"], {}),
+            heading_override=r.get("heading_override"),
+            table_fills=[TableFill(**tf) for tf in tfs] if tfs else [],
         )
 
     exclude_keys = {by_num[n].key for n in excluded_nums if n in by_num}

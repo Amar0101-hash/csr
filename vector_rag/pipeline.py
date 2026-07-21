@@ -232,11 +232,8 @@ def _inherit_guidance(sections: list[SectionSpec]) -> None:
 # ---- persistence helpers ----
 
 def _section_dict(s: SectionSpec) -> dict:
-    return {
-        "key": s.key, "number": s.number, "title": s.title, "level": s.level,
-        "generate": s.generate, "guidance_len": len(s.guidance),
-        "iso_requirements": s.iso_requirements,
-    }
+    from .ingestion.template_parser import template_section_meta
+    return template_section_meta(s)
 
 
 def _save_generated(settings: Settings, generated: dict[str, GeneratedSection]) -> None:
@@ -253,6 +250,18 @@ def _save_generated(settings: Settings, generated: dict[str, GeneratedSection]) 
     (settings.work_dir / "generated.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8"
     )
+    # Canonical per-section JSON (typed blocks) — the robust, inspectable artifact
+    # that drives docx/PDF/eval. One file per section.
+    from .section_doc import section_to_dict, section_filename
+
+    sec_dir = settings.work_dir / "sections"
+    sec_dir.mkdir(parents=True, exist_ok=True)
+    for k, g in generated.items():
+        name = section_filename(k, g.title)
+        (sec_dir / f"{name}.json").write_text(
+            json.dumps(section_to_dict(g, number=k), ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
 
 
 def _load_generated(settings: Settings) -> dict[str, GeneratedSection]:

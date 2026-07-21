@@ -23,6 +23,7 @@ from ..config import GUIDANCE_COLORS
 from ..ingestion.docx_reader import iter_block_items
 from ..ingestion.template_parser import HEADING_STYLES, SKIP_STYLES
 from ..models import GeneratedSection, SectionSpec
+from ..section_doc import parse_blocks
 
 GUIDANCE_COLOR_SET = set(GUIDANCE_COLORS.keys())
 BODY_STYLE = "Document Text"
@@ -72,6 +73,8 @@ def build_report(
     does not apply."""
     doc = Document(str(template_path))
     body_style = _safe_style(doc, BODY_STYLE)
+    bullet_style = _safe_style(doc, "List Bullet")
+    number_style = _safe_style(doc, "List Number")
 
     # First pass: assign each block to a section index (aligned by heading order
     # with the parsed `sections`). Collect guidance paragraphs, the heading
@@ -162,13 +165,19 @@ def build_report(
         )
         first_para: Optional[Paragraph] = None
         if gen.paragraphs:
-            for para_text in gen.paragraphs:
-                if _looks_like_md_table(para_text):
-                    ins.table(_parse_md_table(para_text))
-                else:
-                    np = ins.paragraph(para_text, body_style)
-                    if first_para is None:
-                        first_para = np
+            # Parse the generator's loose strings into typed blocks ONCE, then
+            # render deterministically (no per-paragraph markdown re-guessing).
+            blocks = parse_blocks(gen.paragraphs)
+            # If this section carries a figure (e.g. §6.1.1 disposition), render a
+            # CONSORT flowchart from its disposition table and show that instead of
+            # the raw table.
+            fig_path = None
+            if getattr(section, "has_figure", False):
+                fig_path, blocks = _maybe_disposition_figure(section, blocks, stats)
+            first_para = render_blocks(ins, blocks, body_style,
+                                       bullet_style, number_style)
+            if fig_path is not None:
+                ins.image(fig_path, width_inches=5.6)
             if add_comments and first_para is not None:
                 _attach_comment(doc, first_para, gen, stats)
             stats["authored"] += 1
@@ -215,6 +224,13 @@ class _Inserter:
         if tbl is not None:
             self._place(tbl._tbl)
 
+    def image(self, path, width_inches: float = 6.0):
+        from docx.shared import Inches
+        self.doc.add_picture(str(path), width=Inches(width_inches))
+        p = self.doc.paragraphs[-1]  # the paragraph add_picture just created
+        self._place(p._p)
+        return p
+
 
 def _insert_note(doc: Document, anchor: Optional[Paragraph], text: str, style) -> Paragraph:
     if anchor is not None:
@@ -231,7 +247,71 @@ def _set_heading_text(heading: Paragraph, text: str) -> None:
     heading.add_run(text)  # fresh run, no overrides -> inherits Heading style
 
 
-# ---- markdown table rendering ----
+def _maybe_disposition_figure(section, blocks, stats):
+    """If the section's blocks contain a disposition table, render a CONSORT
+    flowchart PNG and remove that table from the blocks (the figure replaces it).
+    Returns (figure_path_or_None, blocks_without_that_table)."""
+    from .figures import find_disposition_rows, render_consort
+    rows = find_disposition_rows(blocks)
+    if not rows:
+        return None, blocks
+    safe = (section.number or section.key or "fig").replace(".", "_")
+    png = Path(_figure_dir()) / f"disposition_{safe}.png"
+    if not render_consort(rows, png):
+        return None, blocks
+    stats["figures"] = stats.get("figures", 0) + 1
+    # drop the FIRST disposition table block — the figure now conveys it
+    kept, dropped = [], False
+    for b in blocks:
+        if not dropped and b.get("type") == "table" and find_disposition_rows([b]):
+            dropped = True
+            continue
+        kept.append(b)
+    return png, kept
+
+
+_FIGURE_DIR = None
+
+
+def _figure_dir() -> str:
+    global _FIGURE_DIR
+    if _FIGURE_DIR is None:
+        from ..config import Settings
+        _FIGURE_DIR = str(Settings().output_dir / "figures")
+    return _FIGURE_DIR
+
+
+# ---- block rendering ----
+
+def render_blocks(ins: "_Inserter", blocks: list[dict], body_style,
+                  bullet_style=None, number_style=None) -> Optional[Paragraph]:
+    """Render typed content blocks (from section_doc.parse_blocks) into the doc via
+    the inserter. Deterministic: a switch on block type, no markdown re-detection.
+    Returns the first paragraph inserted (for anchoring the traceability comment)."""
+    first: Optional[Paragraph] = None
+    for b in blocks:
+        kind = b.get("type")
+        if kind == "table":
+            ins.table(b.get("rows") or [])
+        elif kind == "list":
+            ordered = bool(b.get("ordered"))
+            style = (number_style if ordered else bullet_style) or body_style
+            has_list_style = (number_style if ordered else bullet_style) is not None
+            for i, item in enumerate(b.get("items") or []):
+                # if the template lacks a real list style, prefix a marker so the
+                # item still reads as a list rather than a bare paragraph.
+                text = item if has_list_style else (f"{i + 1}. {item}" if ordered else f"• {item}")
+                p = ins.paragraph(text, style)
+                if first is None:
+                    first = p
+        else:  # paragraph
+            p = ins.paragraph(b.get("text", ""), body_style)
+            if first is None:
+                first = p
+    return first
+
+
+# ---- markdown table rendering (retained for external callers) ----
 
 def _looks_like_md_table(text: str) -> bool:
     lines = [l for l in text.splitlines() if l.strip()]
@@ -339,7 +419,7 @@ def _write_cell(cell, label: Optional[str], value: str) -> None:
 
 
 def _fill_form_table(table: Table, tf) -> bool:
-    from ..generation.table_fill import _clean_label
+    from ..ingestion.template_forms import clean_label as _clean_label
 
     filled = False
     if tf.mode == "synopsis":

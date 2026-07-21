@@ -21,13 +21,10 @@ export default function App() {
   const poll = async () => {
     clearTimeout(pollRef.current)
     const s = await api.genStatus().catch(() => null)
-    if (s) setGen(s)
-    if (s?.running) {
-      setRefresh((x) => x + 1) // green dots appear as sections finish
-      pollRef.current = setTimeout(poll, 2500)
-    } else if (s) {
-      setRefresh((x) => x + 1)
-    }
+    if (!s) return
+    setGen(s)
+    setRefresh((x) => x + 1) // section rows update: spinner -> green dot as each finishes
+    if (s.running) pollRef.current = setTimeout(poll, 2000)
   }
   // pick up an already-running job on page load, then poll while it runs
   useEffect(() => { poll(); return () => clearTimeout(pollRef.current) }, [])
@@ -39,8 +36,9 @@ export default function App() {
       + 'every section and OVERWRITES current content, including your manual edits. It '
       + 'runs for several minutes and calls Claude once per section.'
     )) return
-    const r = await api.generateFull('medium', method).catch((e) => ({ error: String(e) }))
+    const r = await api.generateFull('low', method).catch((e) => ({ error: String(e) }))
     if (r?.error) { alert(r.error); return }
+    setGen({ running: true, done: 0, total: 0, current: [], errors: [] })
     poll()
   }
 
@@ -143,7 +141,7 @@ export default function App() {
 
       {tab === 'sections' ? (
         <div className="view">
-          <SectionList selected={selected} onSelect={setSelected} refresh={refresh} />
+          <SectionList selected={selected} onSelect={setSelected} refresh={refresh} gen={gen} />
           <SectionDetail number={selected} method={method} methods={METHODS}
                          onChanged={() => setRefresh((x) => x + 1)} />
         </div>

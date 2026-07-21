@@ -15,6 +15,7 @@ from docx.table import Table
 from ..config import GUIDANCE_COLORS
 from ..models import SectionSpec
 from .docx_reader import Para, iter_block_items, open_document, read_paragraph, read_table
+from .template_forms import extract_form_fields
 
 HEADING_STYLES = {
     "Title": 0,
@@ -39,6 +40,16 @@ NO_GENERATE_KEYWORDS = (
     "SAFETY TABLES", "SUBJECT LISTINGS", "SUBJECT NARRATIVES", "DEATHS",
     "ADVERSE EVENTS LEADING TO DISCONTINUATION", "ADES",
 )
+
+
+def _has_image(block) -> bool:
+    """True if a paragraph block embeds a picture/drawing (a figure)."""
+    try:
+        xml = block._p.xml
+    except Exception:
+        return False
+    return any(tag in xml for tag in
+               ("<w:drawing", "<w:pict", "imagedata", "<a:blip", "pic:pic"))
 
 
 def _dominant_color(para: Para) -> str | None:
@@ -94,6 +105,25 @@ def _should_generate(title: str, guidance: str) -> bool:
     return _is_endpoint_placeholder(title)
 
 
+def template_section_meta(s: SectionSpec) -> dict:
+    """Rich, inspectable template intelligence for one section — the full guidance,
+    extracted form fields (label + per-field instruction + fillable), figure flag,
+    and structure. Persisted to template.json and served to the UI; the same
+    representation drives generation context and docx assembly."""
+    return {
+        "key": s.key, "number": s.number, "title": s.title, "level": s.level,
+        "generate": s.generate, "class_hint": s.class_hint,
+        "has_figure": s.has_figure, "n_tables": len(s.tables),
+        "guidance": s.guidance,
+        "iso_requirements": s.iso_requirements,
+        "form_fields": [
+            {"table_index": f.table_index, "mode": f.mode, "label": f.label,
+             "instruction": f.instruction, "fillable": f.fillable}
+            for f in s.form_fields
+        ],
+    }
+
+
 def parse_template(path) -> list[SectionSpec]:
     doc = open_document(path)
     sections: list[SectionSpec] = []
@@ -109,6 +139,9 @@ def parse_template(path) -> list[SectionSpec]:
             current.generate = _should_generate(current.title, current.guidance)
             if _is_endpoint_placeholder(current.title):
                 current.class_hint = _endpoint_class(current.title)
+            # extract the section's fillable form fields (label + per-field
+            # instruction) — the template intelligence used by generation + docx.
+            current.form_fields = extract_form_fields(current.tables)
             sections.append(current)
         guidance_parts = []
 
@@ -121,6 +154,9 @@ def parse_template(path) -> list[SectionSpec]:
         para = read_paragraph(block)
         style = para.style
         text = para.text.strip()
+
+        if current is not None and _has_image(block):
+            current.has_figure = True
 
         if style in HEADING_STYLES and (text or style == "Title"):
             level = HEADING_STYLES[style]

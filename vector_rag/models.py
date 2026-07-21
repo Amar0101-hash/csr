@@ -47,6 +47,19 @@ class TemplateBlock:
 
 
 @dataclass
+class FormField:
+    """One fillable field inside a template form-table, with the template's own
+    per-field instruction (extracted from the value cell). The 'template
+    intelligence' the generator uses to fill each field correctly and the docx
+    assembler uses to place it."""
+    table_index: int
+    mode: str            # synopsis | label_value
+    label: str
+    instruction: str     # what this field must contain (template guidance)
+    fillable: bool = True  # False for PII / sign-off fields left to a human
+
+
+@dataclass
 class SectionSpec:
     """A section of the CSR template: a heading plus everything under it up to
     the next heading of equal-or-higher level."""
@@ -63,6 +76,8 @@ class SectionSpec:
     key: str = ""            # stable key: number or slug
     class_hint: str = ""     # for endpoint placeholders: "primary"/"secondary"/...
     guidance_inherited: bool = False  # guidance was inherited from an ancestor
+    form_fields: list[FormField] = field(default_factory=list)  # extracted form fields
+    has_figure: bool = False  # section contains an image/figure placeholder
 
     def heading_text(self) -> str:
         return f"{self.number} {self.title}".strip()

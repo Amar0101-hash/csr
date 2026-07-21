@@ -45,11 +45,34 @@ def _mask(text: str) -> str:
     return text
 
 
+def _extract_pairs(table: Table) -> dict[str, str]:
+    """Pull label -> value pairs from a filled human form-table (Title Page /
+    Summary synopsis), collapsing merged cells."""
+    out: dict[str, str] = {}
+    for row in table.rows:
+        cells: list[str] = []
+        for c in row.cells:
+            t = c.text.strip()
+            if not cells or cells[-1] != t:
+                cells.append(t)
+        if len(cells) >= 2 and cells[0]:
+            label = cells[0].split(":")[0].strip()
+            val = cells[1].strip()
+            if label and val and len(label) < 80:
+                out[label] = val
+        elif len(cells) == 1 and ":" in cells[0]:
+            label, val = cells[0].split(":", 1)
+            if label.strip() and val.strip():
+                out[label.strip()] = val.strip()
+    return out
+
+
 class StyleReference:
     def __init__(self, path: Path):
         self.path = path
         self.by_number: dict[str, str] = {}
         self.by_title: dict[str, str] = {}
+        self.form_by_number: dict[str, dict[str, str]] = {}  # masked human form fields
         if path and path.exists():
             self._parse()
 
@@ -69,6 +92,12 @@ class StyleReference:
 
         for block in iter_block_items(doc):
             if isinstance(block, Table):
+                # capture filled form-table field values (masked) for few-shot
+                if cur_number and not any(k in cur_title.lower() for k in _PII_HEAVY):
+                    pairs = _extract_pairs(block)
+                    if pairs:
+                        self.form_by_number.setdefault(cur_number, {}).update(
+                            {k: _mask(v)[:200] for k, v in pairs.items()})
                 continue
             p: Paragraph = block
             style = p.style.name if p.style else ""
@@ -90,6 +119,11 @@ class StyleReference:
         if number and number in self.by_number:
             return self.by_number[number]
         return self.by_title.get(_norm(title))
+
+    def form_exemplar_for(self, number: str) -> dict[str, str]:
+        """Masked label -> value pairs of how the human filled this section's form
+        table (few-shot for format/brevity; facts are masked out)."""
+        return self.form_by_number.get(number, {})
 
 
 def _norm(title: str) -> str:
