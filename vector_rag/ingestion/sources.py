@@ -9,7 +9,9 @@ from docx.table import Table
 from ..models import Chunk
 from .docx_reader import (
     iter_block_items,
+    looks_like_caption,
     open_document,
+    parse_table_facts,
     read_paragraph,
     read_table,
     table_to_markdown,
@@ -65,27 +67,39 @@ def load_source_file(path: Path, target_tokens: int, overlap_tokens: int) -> lis
     heading_stack: list[tuple[int, str]] = []
     buf: list[str] = []
     buf_tokens = 0
+    last_para = ""  # nearest preceding paragraph — a table caption candidate
 
     def breadcrumb() -> str:
         return " > ".join(h for _, h in heading_stack) or doc_name
 
     for block in iter_block_items(document):
         if isinstance(block, Table):
-            # tables get their own chunk in markdown
+            # Each table is one chunk. We store STRUCTURE-AWARE "facts" (row/group/
+            # column context, n/% split) so numeric cells are unambiguous and
+            # retrievable, followed by the raw markdown grid for completeness. If
+            # the structure parse can't make sense of the table, we fall back to
+            # markdown alone — so this never loses data or fails.
             rows = read_table(block)
             md = table_to_markdown(rows)
             if md.strip():
-                title = rows[0][0] if rows and rows[0] else ""
+                caption = last_para if looks_like_caption(last_para) else ""
+                try:
+                    facts = parse_table_facts(rows, caption)
+                except Exception:
+                    facts = None
+                text = f"{facts}\n\n{md}" if facts else md
+                title = caption or (rows[0][0] if rows and rows[0] else "")
                 path_str = breadcrumb()
                 if title:
                     path_str = f"{path_str} > {title[:60]}"
-                chunks.append(Chunk.make(doc_name, dtype, path_str, md, kind="table"))
+                chunks.append(Chunk.make(doc_name, dtype, path_str, text, kind="table"))
             continue
 
         para = read_paragraph(block)
         text = para.text.strip()
         if not text:
             continue
+        last_para = text
 
         if para.style in HEADING_STYLES:
             # close current text chunk at heading boundary
