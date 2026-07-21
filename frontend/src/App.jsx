@@ -13,6 +13,7 @@ export default function App() {
   const [dl, setDl] = useState('') // which report format is downloading
   const [gen, setGen] = useState(null) // full-generation job status
   const [ver, setVer] = useState(null) // document version / approval state
+  const [method, setMethod] = useState('hybrid') // retrieval strategy for generation
   const pollRef = useRef(null)
 
   useEffect(() => { api.version().then(setVer).catch(() => {}) }, [refresh])
@@ -34,14 +35,20 @@ export default function App() {
   const generateAll = async () => {
     if (gen?.running) return
     if (!window.confirm(
-      'Generate the FULL document?\n\nThis re-authors every section and OVERWRITES '
-      + 'current content, including your manual edits. It runs for several minutes '
-      + 'and calls Claude once per section.'
+      `Generate the FULL document using ${method.toUpperCase()} RAG?\n\nThis re-authors `
+      + 'every section and OVERWRITES current content, including your manual edits. It '
+      + 'runs for several minutes and calls Claude once per section.'
     )) return
-    const r = await api.generateFull().catch((e) => ({ error: String(e) }))
+    const r = await api.generateFull('medium', method).catch((e) => ({ error: String(e) }))
     if (r?.error) { alert(r.error); return }
     poll()
   }
+
+  const METHODS = [
+    ['hybrid', 'Hybrid RAG'],
+    ['vector', 'Vector RAG'],
+    ['graph', 'Graph RAG'],
+  ]
 
   const download = async (fmt) => {
     if (dl) return
@@ -92,8 +99,14 @@ export default function App() {
               ✓ Approve document → v{(ver.major || 0) + 1}.0
             </button>
           )}
+          <select className="cmode hmethod" value={method}
+                  disabled={gen?.running}
+                  title="Retrieval strategy used for generation"
+                  onChange={(e) => setMethod(e.target.value)}>
+            {METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
           <button className="hbtn" disabled={gen?.running} onClick={generateAll}
-                  title="Author every section from its linked sources (overwrites current content)">
+                  title="Author every section with the selected RAG method (overwrites current content)">
             {gen?.running
               ? <><span className="spin" />Generating {gen.done}/{gen.total}…</>
               : '⚡ Generate full document'}
@@ -131,7 +144,8 @@ export default function App() {
       {tab === 'sections' ? (
         <div className="view">
           <SectionList selected={selected} onSelect={setSelected} refresh={refresh} />
-          <SectionDetail number={selected} onChanged={() => setRefresh((x) => x + 1)} />
+          <SectionDetail number={selected} method={method} methods={METHODS}
+                         onChanged={() => setRefresh((x) => x + 1)} />
         </div>
       ) : tab === 'coverage' ? (
         <CoverageHeatmap

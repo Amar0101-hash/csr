@@ -8,43 +8,40 @@ with **source traceability** and **template-structure preservation**.
   section skeleton and the ISO 14155:2020 / ICH E3 authoring rules (encoded as
   colored guidance text). The generator preserves that structure exactly and
   replaces the colored guidance with authored, grounded prose.
-- **Hybrid RAG**: LanceDB vector search + full-text search (RRF fusion) plus a
-  `networkx` knowledge graph over clinical entities (analysis sets, endpoints,
-  visits, AE terms…) that expands retrieval across documents — so an endpoint
-  *defined* in the SAP, *described* in the Protocol, and *measured* in a TFL
-  table is pulled together for one section.
+- **Three RAG strategies, compared**: the same grounded-generation core is fed by
+  three interchangeable retrievers so they can be judged head-to-head —
+  **Vector** (LanceDB dense + full-text, RRF), **Graph** (Neo4j knowledge graph +
+  `FILLED_BY` links + text-to-Cypher), and **Hybrid** (vector + FTS + Neo4j
+  entity-graph expansion, consensus-fused). The goal: an endpoint *defined* in the
+  SAP, *described* in the Protocol, and *measured* in a TFL table is pulled
+  together for one section.
 - **Grounded + verified**: every section is authored only from retrieved source
   excerpts, with `[S#]` citations. A verifier checks that material numbers in
   the prose appear verbatim in the sources and flags any that don't.
 - **Traceable output**: the final `.docx` carries Word comments citing the
   sources per generated paragraph, plus a `traceability.md` / `.json` report.
+- **Review UI**: a React + FastAPI app to generate, review, compare retrieval
+  strategies, audit every number, and drive a draft → approved-`1.0` workflow.
 
 ## Architecture
 
+The repo is five top-level components, each with its own README:
+
 ```
-vector_rag/
-  config.py                 # paths, Bedrock model ids, retrieval knobs, color map
-  models.py                 # Chunk, SectionSpec, GeneratedSection, Citation
-  ingestion/
-    docx_reader.py          # ordered block iteration, run colors, tables->markdown
-    template_parser.py      # color-aware template -> SectionSpec tree
-    sources.py              # Protocol/SAP/MOP/TFL -> heading-aware Chunks
-  knowledge/
-    embeddings.py           # Amazon Titan v2 text embeddings (Bedrock)
-    vector_store.py         # LanceDB vector + FTS
-    graph_store.py          # networkx entity graph (deterministic extraction)
-    retriever.py            # vector + FTS (RRF) + graph expansion
-  generation/
-    llm.py                  # Claude on Bedrock (Anthropic SDK) + JSON parsing
-    prompts.py              # grounding system prompt, per-section routing
-    writer.py               # retrieve -> prompt -> generate -> verify
-    verify.py               # numeric-grounding + citation checks
-  assembly/
-    docx_builder.py         # fill template in place, keep structure, add comments
-    traceability.py         # traceability.json + traceability.md
-  pipeline.py               # ingest / generate / assemble / run
-  cli.py                    # `csr` command
+vector_rag/    # Vector RAG + the shared foundation (models, ingestion, embeddings,
+               #   generation, .docx assembly) + the `csr` CLI        -> vector_rag/README.md
+graph_rag/     # Graph RAG: Neo4j knowledge graph, FILLED_BY linking,
+               #   text-to-Cypher, the `graph_rag.demo` CLI           -> graph_rag/README.md
+hybrid_rag/    # Hybrid RAG: vector + FTS + Neo4j entity-graph expansion, RRF fusion
+               #                                                       -> hybrid_rag/README.md
+backend/       # FastAPI web layer: API, generation orchestration, version/approval
+               #                                                       -> backend/README.md
+frontend/      # React (Vite) review UI                               -> frontend/README.md
 ```
+
+All three retrievers emit the same `RetrievedChunk` type and feed **one** shared
+generation core (`graph_rag.generate.author_from_retrieved`), so only *retrieval*
+differs between strategies — which keeps the comparison fair.
 
 ## Prerequisites
 
@@ -77,7 +74,7 @@ uv run csr generate --limit 5                # first 5 (quick trial)
 uv run csr generate --only 5.1 6.3.4.1       # specific sections
 
 # Fast full run (recommended): parallel + medium effort, unbuffered progress
-uv run python -u -m csr.cli generate --workers 8 --effort medium
+uv run python -u -m vector_rag.cli generate --workers 8 --effort medium
 
 # 3. Assemble the .docx + traceability (also runs automatically after generate)
 uv run csr assemble
@@ -95,6 +92,31 @@ Outputs land in `output/`:
 - `traceability.md` / `traceability.json` — per-section citations + verification.
 
 Intermediate index/cache lives in `.csr_work/` (LanceDB, graph, chunk cache).
+
+## Review UI (generate · compare · approve)
+
+A React + FastAPI app for reviewing and driving generation with all three RAG
+strategies. Requires a running **Neo4j** (see `graph_rag/README.md`) plus the
+LanceDB index (`uv run csr ingest`).
+
+```bash
+# one-time: build the graph + template links (Neo4j)
+uv run python -m graph_rag.demo build
+uv run python -m graph_rag.demo template
+
+# start the web app  ->  http://localhost:8000
+uv run python -m backend.server
+```
+
+For UI development with hot reload, run the Vite dev server alongside it
+(`cd frontend && npm run dev`, port 5173, proxies `/api` to :8000). Full API and
+component details are in `backend/README.md` and `frontend/README.md`.
+
+The UI covers: per-section and full-document generation (pick Vector / Graph /
+Hybrid), reviewable regeneration, source traceability with green-highlighted
+quotes against the original documents, a document-wide numbers audit, an
+interactive source-lineage graph, a three-way retrieval comparison, an
+append-only audit trail, and a draft → approved-`1.0` version workflow.
 
 ## How template structure is preserved
 

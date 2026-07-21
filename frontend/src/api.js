@@ -6,11 +6,11 @@ export const api = {
   section: (n) => fetch(`/api/sections/${encodeURIComponent(n)}`).then(j),
   graph: (n) => fetch(`/api/graph/${encodeURIComponent(n)}`).then(j),
   coverage: () => fetch('/api/coverage').then(j),
-  generate: (n, custom_prompt, preview = false) =>
+  generate: (n, custom_prompt, preview = false, method = 'hybrid') =>
     fetch(`/api/sections/${encodeURIComponent(n)}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ custom_prompt, preview }),
+      body: JSON.stringify({ custom_prompt, preview, method }),
     }).then(j),
   acceptRegen: (n, payload) =>
     fetch(`/api/sections/${encodeURIComponent(n)}/accept`, {
@@ -41,11 +41,11 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ excluded }),
     }).then(j),
-  generateFull: (effort = 'medium') =>
+  generateFull: (effort = 'medium', method = 'hybrid') =>
     fetch('/api/report/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ effort }),
+      body: JSON.stringify({ effort, method }),
     }).then(j),
   genStatus: () => fetch('/api/report/generate/status').then(j),
   compare: (query, graph_mode, k = 8) =>

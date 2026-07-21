@@ -3,8 +3,9 @@ import { api, DOC_COLORS } from '../api'
 import SourcePanel from './SourcePanel'
 import LineageGraph from './LineageGraph'
 import SourceViewer from './SourceViewer'
+import RenderedContent from './RenderedContent'
 
-export default function SectionDetail({ number, onChanged }) {
+export default function SectionDetail({ number, method = 'hybrid', methods = [], onChanged }) {
   const [d, setD] = useState(null)
   const [body, setBody] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -13,6 +14,8 @@ export default function SectionDetail({ number, onChanged }) {
   const [proposal, setProposal] = useState(null) // previewed regeneration awaiting review
   const [audit, setAudit] = useState([])
   const [srcView, setSrcView] = useState(null)   // {doc, path} -> source comparison modal
+  const [secMethod, setSecMethod] = useState(method) // per-section retrieval strategy
+  const [editing, setEditing] = useState(false)  // content view: rendered vs raw editor
 
   const load = () =>
     Promise.all([api.section(number), api.audit(number)]).then(([data, ev]) => {
@@ -21,9 +24,11 @@ export default function SectionDetail({ number, onChanged }) {
 
   useEffect(() => {
     if (!number) { setD(null); return }
-    setStatus(''); setProposal(null); setSrcView(null)
+    setStatus(''); setProposal(null); setSrcView(null); setEditing(false)
     load()
   }, [number])
+
+  useEffect(() => { setSecMethod(method) }, [method])
 
   if (!number) {
     return (
@@ -50,11 +55,11 @@ export default function SectionDetail({ number, onChanged }) {
   const currentParas = new Set((d.content || '').split('\n\n').map((p) => p.trim()))
 
   const regenerate = async () => {
-    setBusy(true); setStatus('generating proposal…')
-    const res = await api.generate(number, prompt, true) // preview: nothing saved yet
+    setBusy(true); setStatus(`generating proposal (${secMethod})…`)
+    const res = await api.generate(number, prompt, true, secMethod) // preview: nothing saved
     setBusy(false)
     if (!res.content) { setStatus(res.notes || 'no content'); return }
-    setStatus('proposal ready — review below')
+    setStatus(`proposal ready (${secMethod}) — review below`)
     setProposal(res)
   }
   const acceptProposal = async () => {
@@ -87,18 +92,31 @@ export default function SectionDetail({ number, onChanged }) {
           <span className={'badge ' + (v.unsupported_count ? 'warn' : 'ok')}>{v.num_numbers} numbers</span>}
         {!!v.unsupported_count && <span className="badge warn">{v.unsupported_count} unsupported</span>}
         <span className={'badge ' + (d.content ? 'ok' : '')}>{d.content ? 'content ✓' : 'no content yet'}</span>
+        {d.method_used && <span className="badge method">{d.method_used} RAG</span>}
       </div>
 
       <div className="card">
-        <h3>Content <span className="status">{busy && <span className="spin blue" />}{status}</span></h3>
+        <div className="card-head">
+          <h3>Content <span className="status">{busy && <span className="spin blue" />}{status}</span></h3>
+          {d.content && (
+            <button className="linkbtn" onClick={() => { if (editing) save(); setEditing((e) => !e) }}>
+              {editing ? 'Done editing' : '✎ Edit'}
+            </button>
+          )}
+        </div>
         <div className="toolbar">
           <textarea className="prompt" placeholder="Optional: custom instruction to regenerate (e.g. 'Summarise in 3 sentences and emphasise the noninferiority conclusion')"
                     value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <select className="cmode" value={secMethod} disabled={busy}
+                  title="Retrieval strategy for this regeneration"
+                  onChange={(e) => setSecMethod(e.target.value)}>
+            {(methods.length ? methods : [['hybrid', 'Hybrid RAG'], ['vector', 'Vector RAG'], ['graph', 'Graph RAG']])
+              .map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+          </select>
           <button disabled={busy} onClick={regenerate}
                   title="Author a new draft as a PROPOSAL — nothing is overwritten until you accept it">
             Regenerate section
           </button>
-          <button className="ghost" onClick={save}>Save edits</button>
           <button className={d.approved ? 'ghost' : 'approve-btn'}
                   disabled={busy || !d.content}
                   title={d.content ? (d.approved ? 'Remove approval (back to draft)' : 'Mark this section as reviewed & approved')
@@ -107,8 +125,12 @@ export default function SectionDetail({ number, onChanged }) {
             {d.approved ? 'Unapprove' : '✓ Approve'}
           </button>
         </div>
-        <textarea className="body-area" placeholder="Not generated yet — click Regenerate section."
-                  value={body} onChange={(e) => setBody(e.target.value)} />
+        {editing ? (
+          <textarea className="body-area" placeholder="Not generated yet — click Regenerate section."
+                    value={body} onChange={(e) => setBody(e.target.value)} />
+        ) : (
+          <RenderedContent text={body} />
+        )}
       </div>
 
       {proposal && (

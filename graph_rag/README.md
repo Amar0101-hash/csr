@@ -1,140 +1,112 @@
-# GraphRAG prototype (isolated — does not touch `vector_rag`)
+# graph_rag
 
-A standalone spike of the "colleague's design": a **study-rooted knowledge graph
-in Neo4j with embeddings on the nodes** (native Neo4j vector index) plus a
-**text-to-Cypher** path where the LLM writes the query. Built to compare, side by
-side, against the deterministic retrieval in the main app.
+The **Graph RAG** package: a study-rooted **knowledge graph in Neo4j** with
+embeddings on the section nodes (native Neo4j vector index), a **text-to-Cypher**
+path where the LLM writes the query, and **template-driven `FILLED_BY` linking**
+that turns generation and traceability into graph traversals.
 
-Isolation guarantees:
-- Lives entirely in this folder; the main pipeline is untouched.
-- Uses **distinct node labels** (`:RagStudy`, `:RagDoc`, `:RagSection`) so it
-  shares the same Neo4j instance without colliding with the app's
-  `:Chunk/:Entity/:Document` graph.
-- Reuses the app's chunking / Titan embeddings / Bedrock client **by import only**
-  (read-only) to avoid duplicating stable code.
+> Naming: this package was formerly `graphrag_prototype`. It reuses `vector_rag`'s
+> chunker, Titan embedder, prompts, verifier, and `.docx` assembler by import
+> (read-only) — only the *retrieval mechanism* differs.
 
 ## Graph model
 
 ```
 (:RagStudy {id})
 (:RagDoc {name, doc_type})-[:PART_OF]->(:RagStudy)
-(:RagSection {id, doc, path, kind, text, embedding})-[:IN]->(:RagDoc)
+(:RagSection {id, doc, path, kind, text, embedding, name, preview})-[:IN]->(:RagDoc)
 (:RagSection)-[:OF_STUDY]->(:RagStudy)
-```
-`RagSection.embedding` is a 1024-dim Titan v2 vector; a native vector index
-`rag_section_embeddings` (cosine) powers semantic search inside Cypher.
 
-## Run
+(:RagTemplateSection {number, title, guidance, generate, embedding, name, content, ...})
+(:RagTemplateSection)-[:PARENT_OF]->(:RagTemplateSection)         # template tree
+(:RagTemplateSection)-[:OF_STUDY]->(:RagStudy)
+(:RagTemplateSection)-[:FILLED_BY {score, method, role}]->(:RagSection)   # computed link
+```
+
+- `RagSection.embedding` is a 1024-dim Titan v2 vector; the native vector index
+  `rag_section_embeddings` (cosine) powers semantic search **inside Cypher**, and
+  `rag_section_fts` is a full-text index over the section text.
+- `FILLED_BY` is computed per authorable template section by fusing vector + FTS
+  candidates (RRF) with a doc-type routing bonus, an entity-overlap bonus, and
+  reserved slots for the section's TFL result tables. Materializing it as edges
+  makes generation, traceability, and coverage one-line traversals.
+
+There is also a **legacy entity graph** in the same database —
+`(:Chunk)-[:MENTIONS]->(:Entity)` — over the same content-hash ids. `hybrid_rag`
+uses it for cross-document entity expansion (see `hybrid_rag/README.md`).
+
+## Layout
+
+```
+graph_rag/
+  gr_config.py         # reuses vector_rag Settings, attaches Neo4j creds, label namespace
+                       #   L_STUDY/L_DOC/L_SECTION, VECTOR_INDEX, STUDY_ID
+  dataingestion/
+    build_graph.py     # RagStudy/RagDoc/RagSection + Titan embeddings + native vector index
+    template_graph.py  # RagTemplateSection + FILLED_BY edges (L_TSECTION), coverage()
+    entities.py        # extract_entities — deterministic clinical-entity extraction
+    enrich.py          # readable node captions for Neo4j Browser
+  generate.py          # author_from_retrieved (SHARED generation core), _author (FILLED_BY),
+                       #   author_section, generate_report, build_docx_from_cache
+  retrieve.py          # vector_search — semantic search executed inside Neo4j
+  text2cypher.py       # LLM writes + runs a guarded, read-only Cypher query
+  trace_view.py        # section_view, coverage_view, section_sort_key (UI graph JSON)
+  audit.py             # log_event, events_for — append-only JSONL audit trail
+  compare_reports.py   # head-to-head diff: main app .docx vs graph .docx
+  fill_section.py      # single-section fill helper
+  demo.py              # CLI for the whole prototype (see below)
+```
+
+## Prerequisites
+
+- A running **Neo4j 5.x** at `bolt://localhost:7687` (override via `CSR_NEO4J_URI`,
+  `CSR_NEO4J_USER`, `CSR_NEO4J_PASSWORD`, `CSR_NEO4J_DATABASE`).
+- Same Bedrock access as `vector_rag` (Titan v2 + Claude).
+
+## CLI (`demo.py`)
+
+Run as a module from the repo root:
 
 ```bash
-# 1. build the study-rooted graph + embeddings + vector index
+# 1. build the study-rooted graph + embeddings + native vector index
 uv run python -m graph_rag.demo build
 
 # 2. semantic (vector) search executed INSIDE Neo4j
 uv run python -m graph_rag.demo search "primary effectiveness endpoint results"
 
-# 3. text-to-Cypher: the LLM writes + runs the query (guarded, read-only)
-uv run python -m graph_rag.demo ask "How many source documents are in the study and how many sections does each have?"
+# 3. text-to-Cypher: the LLM writes + runs a read-only query
 uv run python -m graph_rag.demo ask "Which sections mention adverse events?"
 
-# 4. side-by-side: deterministic vector vs LLM-Cypher for the same question
-uv run python -m graph_rag.demo compare "device deficiencies"
-
-# 5. readable node captions in Neo4j Browser (patch existing graph, no re-embed)
+# 4. readable node captions in Neo4j Browser (no re-embed)
 uv run python -m graph_rag.demo enrich
 
-# --- template-driven linking (the second design) ---
-# 6. put the TEMPLATE in the graph + compute FILLED_BY edges to source sections
-uv run python -m graph_rag.demo template
-# 7. coverage: which template sections have no linked source (data gaps)
-uv run python -m graph_rag.demo coverage
-# 8. generate a section by TRAVERSING its FILLED_BY edges (traceable chain)
-uv run python -m graph_rag.demo fill 6.3.5
-# 9. generate the FULL report from graph traversal -> output/GraphRAG_Report.docx
-uv run python -m graph_rag.demo report        # all sections
-uv run python -m graph_rag.demo report 5      # first 5 (quick)
+# --- template-driven linking ---
+uv run python -m graph_rag.demo template     # add the template + compute FILLED_BY edges
+uv run python -m graph_rag.demo coverage     # which template sections have no source (gaps)
+
+# --- generation / comparison ---
+uv run python -m graph_rag.demo fill 6.3.5   # author one section from its FILLED_BY sources
+uv run python -m graph_rag.demo report       # author the whole doc (graph retrieval) -> output/GraphRAG_Report.docx
+uv run python -m graph_rag.demo report 5     # first 5 sections (quick)
+uv run python -m graph_rag.demo compare "device deficiencies"   # deterministic vector vs LLM-Cypher
+uv run python -m graph_rag.demo trace 6.3.5  # per-section source lineage JSON
+uv run python -m graph_rag.demo diff         # numeric agreement: main vs graph reports
 ```
 
-## Web UI — CSR GraphRAG Explorer
+## The shared generation core
 
-A local FastAPI app + self-contained single-page frontend (`webapp/`) on top of
-the graph. `vector_rag` untouched; backend reuses the prototype modules read-only.
+`generate.author_from_retrieved(spec, retrieved, client, custom_prompt, method)`
+is the **single generation path used by all three RAG strategies**. It takes any
+`list[RetrievedChunk]`, builds the grounded prompt (`vector_rag` prompts), calls
+Claude, verifies numbers, attaches citations, and writes an audit event tagged
+with `method`. The `_author` function here fetches a section's `FILLED_BY` sources
+from Neo4j and feeds them to it; `backend` feeds it vector/hybrid retrievals the
+same way. Because only retrieval differs, the three modes are directly comparable.
 
-**Backend** (FastAPI, always needed):
-```bash
-uv run python -m backend.server     # API on http://localhost:8000
-```
+## Notes
 
-**Frontend** is a **Vite + React** app in `frontend/` (requires Node.js LTS):
-```bash
-cd frontend
-npm install
-npm run dev        # dev UI on http://localhost:5173 (proxies /api -> :8000)
-# or, for production:
-npm run build      # -> frontend/dist ; the FastAPI server then serves it at :8000
-```
-Until React is built, the backend serves the zero-build `frontend/legacy.html`
-fallback at `http://localhost:8000`, so the UI works with no Node.
-
-Structure: `frontend/src/App.jsx` (shell + tabs) · `components/SectionList`,
-`SectionDetail`, `SourcePanel`, `LineageGraph` (SVG star), `CoverageHeatmap` ·
-`api.js` (backend client).
-
-Features:
-- **Section list** (left) with a coverage dot per section (color = # linked sources).
-- **Section content** (center), editable, with **Save edits** and **Regenerate**
-  — including a **custom prompt** box to steer regeneration (grounded in the
-  section's linked sources). Generated content is cached on the graph nodes.
-- **Source traceability** panel: every `FILLED_BY` source with its doc, **role**
-  (DEFINES / REPORTS / SPECIFIES / DESCRIBES), score, path and expandable preview.
-- **Source lineage** as an inline SVG star: the template section in the centre,
-  its source nodes around it, colored by document, edges weighted by score — the
-  readable "section → its sources" view (not a hairball).
-- **Coverage heatmap** tab: every section as a cell colored by source count
-  (red = gap), click to jump to the section.
-
-Run `demo.py report` first to pre-populate every section's content (it now caches
-to the nodes); otherwise click **Regenerate** per section in the UI.
-
-## Head-to-head comparison
-
-`report` reuses the main app's grounding prompt + template-preserving assembly
-(read-only), so the produced `output/GraphRAG_Report.docx` differs from the main
-pipeline's `Clinical_Investigation_Report.docx` **only in the retrieval
-mechanism** — graph `FILLED_BY` edges here vs. the hybrid retriever there. Diff
-the two to judge whether the graph-driven links retrieve better, worse, or the
-same. (`FILLED_BY` is tuned with doc-type routing + entity overlap + guaranteed
-result tables; §8.2 External Organizations correctly shows a coverage gap.)
-
-## Node readability
-
-Section nodes carry a `name` (e.g. `protocol · Effectiveness Analyses`) and a
-`preview`. In Neo4j Browser, click the `RagSection` / `RagTemplateSection` label
-chip and set the **caption** to `name`. Useful visual queries:
-
-```cypher
-// a template section and the source nodes that fill it
-MATCH p = (:RagTemplateSection {number:'6.3.5'})-[:FILLED_BY]->(:RagSection)
-RETURN p
-
-// the template tree
-MATCH p = (:RagTemplateSection)-[:PARENT_OF*]->(:RagTemplateSection) RETURN p LIMIT 50
-```
-
-## Template-driven model
-
-```
-(:RagTemplateSection {number, title, guidance, embedding, name})
-(:RagTemplateSection)-[:PARENT_OF]->(:RagTemplateSection)
-(:RagTemplateSection)-[:FILLED_BY {score, method}]->(:RagSection)
-```
-`FILLED_BY` is computed by semantic similarity (section requirement ↔ source
-embeddings, via the vector index) and **materialized as edges**, so generation
-and traceability are graph traversals and coverage gaps are one query.
-
-## What to look for
-
-- **Vector-in-Neo4j** works and could replace LanceDB (one store).
-- **text-to-Cypher** is great for *structured/relational* questions (counts,
-  "which docs", "how many sections") and brittle/non-deterministic for *semantic*
-  ones — exactly the trade-off to show the director.
+- Distinct label namespace (`RagStudy` / `RagDoc` / `RagSection` /
+  `RagTemplateSection`) keeps this graph isolated within a shared Neo4j instance.
+- `text2cypher` is deliberately guarded (read-only clauses only, `LIMIT` enforced)
+  and is meant to expose both the power and the risks of letting an LLM drive
+  retrieval in a *regulated* setting.

@@ -54,7 +54,8 @@ def list_sections():
                t.generate AS generate, sources,
                (t.content IS NOT NULL) AS has_content,
                coalesce(t.excluded, false) AS excluded,
-               coalesce(t.approved, false) AS approved
+               coalesce(t.approved, false) AS approved,
+               t.method_used AS method_used
     """)
     rows.sort(key=lambda r: section_sort_key(r["number"]))
     return rows
@@ -70,6 +71,7 @@ def section_detail(number: str):
                t.verification AS verification,
                coalesce(t.excluded, false) AS excluded,
                coalesce(t.approved, false) AS approved,
+               t.method_used AS method_used,
                collect(CASE WHEN s IS NULL THEN NULL ELSE {{
                  id: s.id, doc: s.doc, path: s.path, name: s.name, kind: s.kind,
                  preview: s.preview, score: f.score, role: f.role,
@@ -124,11 +126,12 @@ _GEN_LOCK = threading.Lock()
 class FullGenReq(BaseModel):
     effort: str = "medium"
     workers: int = 4
+    method: str = "hybrid"  # vector | graph | hybrid
 
 
-def _run_full_generation(effort: str, workers: int) -> None:
+def _run_full_generation(effort: str, workers: int, method: str = "hybrid") -> None:
     from concurrent.futures import ThreadPoolExecutor
-    from graph_rag.generate import author_section, _spec_map
+    from graph_rag.generate import _spec_map
 
     try:
         excluded = {r["n"] for r in _run(
@@ -144,12 +147,12 @@ def _run_full_generation(effort: str, workers: int) -> None:
             with _GEN_LOCK:
                 _GEN_JOB["current"].append(spec.number)
             try:
-                gs = author_section(spec.number, effort=effort)
+                gs = author_section_method(spec.number, method=method, effort=effort)
                 if gs.paragraphs:
                     cites = [{"doc": c.doc, "path": c.section_path, "quote": c.quote}
                              for c in gs.citations]
                     _persist(spec.number, "\n\n".join(gs.paragraphs), cites,
-                             gs.verification, bump=False)
+                             gs.verification, bump=False, method=method)
                 else:
                     with _GEN_LOCK:
                         _GEN_JOB["errors"].append(f"§{spec.number}: {gs.notes or 'no content'}")
@@ -162,7 +165,7 @@ def _run_full_generation(effort: str, workers: int) -> None:
                     _GEN_JOB["done"] += 1
 
         log_event("full-generation-started", sections=len(specs),
-                  effort=effort, workers=workers)
+                  effort=effort, workers=workers, method=method)
         with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
             list(pool.map(one, specs))
         if specs:
@@ -186,8 +189,8 @@ def generate_full(req: FullGenReq):
         _GEN_JOB.update(running=True, done=0, total=0, current=[],
                         errors=[], finished_at=None)
     threading.Thread(target=_run_full_generation,
-                     args=(req.effort, req.workers), daemon=True).start()
-    return {"started": True}
+                     args=(req.effort, req.workers, req.method), daemon=True).start()
+    return {"started": True, "method": req.method}
 
 
 @app.get("/api/report/generate/status")
@@ -267,6 +270,48 @@ def _hybrid_retriever():
         from hybrid_rag import build_hybrid_retriever
         _HYBRID_RETRIEVER = build_hybrid_retriever(SETTINGS)
     return _HYBRID_RETRIEVER
+
+
+_AUTHOR_CLIENT = None
+
+
+def _author_client():
+    global _AUTHOR_CLIENT
+    if _AUTHOR_CLIENT is None:
+        from vector_rag.generation.llm import ClaudeClient
+        _AUTHOR_CLIENT = ClaudeClient(SETTINGS)
+    return _AUTHOR_CLIENT
+
+
+def author_section_method(number: str, method: str = "hybrid",
+                          custom_prompt: str | None = None, effort: str = "medium"):
+    """Author a section with the chosen retrieval strategy. The generation core
+    (prompt, LLM call, verification) is shared across all three — only retrieval
+    differs — so the three modes are directly comparable.
+
+      vector: LanceDB dense + FTS (RRF fusion)
+      graph:  Neo4j FILLED_BY sources for this template section
+      hybrid: vector + FTS + Neo4j entity-graph expansion, consensus-fused
+    """
+    from graph_rag.generate import (author_section as graph_author,
+                                     author_from_retrieved, _spec_map)
+    SETTINGS.effort = effort
+    if method == "graph":
+        return graph_author(number, custom_prompt=custom_prompt, effort=effort)
+
+    spec = _spec_map().get(number)
+    if spec is None:
+        from vector_rag.models import GeneratedSection
+        return GeneratedSection(key=number, title=number, paragraphs=[],
+                                notes="Unknown section.", verification={})
+    from vector_rag.generation.prompts import (build_query, doc_types_for,
+                                               guaranteed_tables_for)
+    retriever = _hybrid_retriever() if method == "hybrid" else _vector_retriever()
+    query = build_query(spec)
+    retrieved = retriever.retrieve(query, doc_types=doc_types_for(spec),
+                                   guarantee_tables=guaranteed_tables_for(spec))
+    return author_from_retrieved(spec, retrieved, _author_client(),
+                                 custom_prompt=custom_prompt, method=method)
 
 
 @app.post("/api/compare")
@@ -351,6 +396,7 @@ class GenReq(BaseModel):
     custom_prompt: str | None = None
     effort: str = "medium"
     preview: bool = False  # true: return the proposal WITHOUT persisting
+    method: str = "hybrid"  # vector | graph | hybrid
 
 
 class SaveReq(BaseModel):
@@ -364,15 +410,16 @@ class AcceptReq(BaseModel):
 
 
 def _persist(number: str, content: str, citations=None, verification=None,
-             bump: bool = True):
+             bump: bool = True, method: str | None = None):
     # Any content change un-approves the section and (by default) bumps the
     # document's minor version. The full-generation job bumps once at the end.
+    # `method` (when given) records which retrieval strategy produced the content.
     _run(f"""
         MATCH (t:{L_TSECTION} {{number: $n}})
         SET t.content = $c, t.citations = $cit, t.verification = $ver,
-            t.approved = false
+            t.approved = false, t.method_used = coalesce($method, t.method_used)
     """, n=number, c=content, cit=json.dumps(citations or []),
-        ver=json.dumps(verification or {}))
+        ver=json.dumps(verification or {}), method=method)
     if bump:
         _bump_minor()
 
@@ -448,14 +495,15 @@ def approve_document():
 
 @app.post("/api/sections/{number}/generate")
 def generate(number: str, req: GenReq):
-    gs = author_section(number, custom_prompt=req.custom_prompt, effort=req.effort)
+    gs = author_section_method(number, method=req.method,
+                               custom_prompt=req.custom_prompt, effort=req.effort)
     content = "\n\n".join(gs.paragraphs)
     cites = [{"doc": c.doc, "path": c.section_path, "quote": c.quote} for c in gs.citations]
     if not req.preview:
-        _persist(number, content, cites, gs.verification)
+        _persist(number, content, cites, gs.verification, method=req.method)
     return {"content": content, "citations": cites,
             "verification": gs.verification, "notes": gs.notes,
-            "preview": req.preview}
+            "preview": req.preview, "method": req.method}
 
 
 @app.post("/api/sections/{number}/accept")

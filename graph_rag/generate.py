@@ -54,33 +54,31 @@ def _persist_content(driver, number: str, gs: GeneratedSection) -> None:
               cit=json.dumps(cites), v=json.dumps(gs.verification or {}))
 
 
-def _author(spec, client: ClaudeClient, driver, custom_prompt: str | None = None) -> GeneratedSection:
-    with driver.session(database=SETTINGS.neo4j_database) as sess:
-        rows = sess.run(_FETCH, num=spec.number).data()
-    if not rows:
+def author_from_retrieved(spec, retrieved, client: ClaudeClient,
+                          custom_prompt: str | None = None,
+                          method: str = "graph") -> GeneratedSection:
+    """Shared generation core for all three retrieval strategies. Given a section
+    spec and a list of RetrievedChunk (from vector / graph / hybrid retrieval),
+    build the grounded prompt, author, verify, and attach citations. `method` is
+    recorded in the audit trail so runs are attributable to their retriever."""
+    if not retrieved:
         return GeneratedSection(key=spec.key, title=spec.title, paragraphs=[],
-                                notes="No FILLED_BY sources linked.",
+                                notes=f"No sources retrieved ({method}).",
                                 verification={"grounded": True})
-    retrieved = [
-        RetrievedChunk(
-            Chunk(id=r["id"], doc=r["doc"], doc_type=_doc_type(r["doc"]),
-                  section_path=r["path"], text=r["text"], kind=r["kind"]),
-            r["score"] or 0.0, "graph",
-        )
-        for r in rows
-    ]
     user, label_map = build_user_prompt(spec, retrieved)
     if custom_prompt and custom_prompt.strip():
         user += ("\n\nADDITIONAL AUTHOR INSTRUCTION (obey this while staying grounded "
                  f"in the sources above):\n{custom_prompt.strip()}\n")
     from graph_rag.audit import log_event
     audit_sources = [{"id": r.chunk.id, "doc": r.chunk.doc,
-                      "path": r.chunk.section_path, "score": r.score}
+                      "path": r.chunk.section_path, "score": r.score,
+                      "provenance": getattr(r, "provenance", method)}
                      for r in retrieved]
     try:
         data = client.complete_json(SYSTEM_WRITER, user)
     except Exception as e:
-        log_event("generate-error", spec.number, model=SETTINGS.gen_model,
+        log_event("generate-error", spec.number, method=method,
+                  model=SETTINGS.gen_model,
                   effort=SETTINGS.effort, error=f"{type(e).__name__}: {e}",
                   sources=audit_sources)
         return GeneratedSection(key=spec.key, title=spec.title, paragraphs=[],
@@ -104,13 +102,32 @@ def _author(spec, client: ClaudeClient, driver, custom_prompt: str | None = None
         gs.citations.append(Citation(chunk_id=cid, doc=ch.doc if ch else "?",
                                      section_path=ch.section_path if ch else "",
                                      quote=str(c.get("quote", ""))[:400]))
-    log_event("generate", spec.number, model=SETTINGS.gen_model,
+    log_event("generate", spec.number, method=method, model=SETTINGS.gen_model,
               effort=SETTINGS.effort,
               custom_prompt=(custom_prompt or None),
               sources=audit_sources, prompt=user,
               paragraphs=len(paras), citations=len(gs.citations),
               verification=gs.verification)
     return gs
+
+
+def _author(spec, client: ClaudeClient, driver, custom_prompt: str | None = None) -> GeneratedSection:
+    """Graph retrieval: pull the section's FILLED_BY sources from Neo4j, then author."""
+    with driver.session(database=SETTINGS.neo4j_database) as sess:
+        rows = sess.run(_FETCH, num=spec.number).data()
+    if not rows:
+        return GeneratedSection(key=spec.key, title=spec.title, paragraphs=[],
+                                notes="No FILLED_BY sources linked.",
+                                verification={"grounded": True})
+    retrieved = [
+        RetrievedChunk(
+            Chunk(id=r["id"], doc=r["doc"], doc_type=_doc_type(r["doc"]),
+                  section_path=r["path"], text=r["text"], kind=r["kind"]),
+            r["score"] or 0.0, "graph",
+        )
+        for r in rows
+    ]
+    return author_from_retrieved(spec, retrieved, client, custom_prompt, method="graph")
 
 
 def generate_report(effort: str = "medium", workers: int = 4, limit: int | None = None,
