@@ -4,6 +4,7 @@ import SectionDetail from './components/SectionDetail'
 import CoverageHeatmap from './components/CoverageHeatmap'
 import Compare from './components/Compare'
 import NumbersAudit from './components/NumbersAudit'
+import ReportPreview from './components/ReportPreview'
 import { api } from './api'
 
 export default function App() {
@@ -14,7 +15,15 @@ export default function App() {
   const [gen, setGen] = useState(null) // full-generation job status
   const [ver, setVer] = useState(null) // document version / approval state
   const [method, setMethod] = useState('hybrid') // retrieval strategy for generation
+  const [preview, setPreview] = useState(null)   // null | 'loading' | html
   const pollRef = useRef(null)
+
+  const openPreview = async () => {
+    setPreview('loading')
+    const r = await api.reportPreview().catch((e) => ({ error: String(e) }))
+    if (r?.error) { alert(r.error); setPreview(null); return }
+    setPreview(r.html || '<p>(empty)</p>')
+  }
 
   useEffect(() => { api.version().then(setVer).catch(() => {}) }, [refresh])
 
@@ -81,6 +90,7 @@ export default function App() {
 
   return (
     <>
+      <ReportPreview state={preview} onClose={() => setPreview(null)} />
       <header>
         <h1><span>CSR</span> GraphRAG Explorer</h1>
         {ver && (
@@ -114,6 +124,10 @@ export default function App() {
               {gen.errors.length} section{gen.errors.length > 1 ? 's' : ''} failed
             </span>
           )}
+          <button className="hbtn ghost" onClick={openPreview}
+                  title="Preview the assembled report in the browser">
+            👁 Preview
+          </button>
           <button className="hbtn" disabled={!!dl} onClick={() => download('docx')}>
             {dl === 'docx' ? <span className="spin" /> : '⬇ '}Report .docx
           </button>

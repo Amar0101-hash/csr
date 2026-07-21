@@ -281,6 +281,19 @@ svg text{fill:var(--text)}
 .srcblock .citedtag{position:absolute;top:8px;right:10px}
 mark.hl{background:#86efac;color:#052e16;border-radius:3px;padding:0 2px}
 mark.hl.demo{padding:0 6px}
+/* --- report preview (docx -> html) --- */
+.preview-modal{width:min(920px,94vw)}
+.preview-body{flex:1;overflow:auto;background:#eef2f7;padding:26px;border-radius:0 0 14px 14px}
+.docx-preview{background:#fff;max-width:760px;margin:0 auto;padding:48px 60px;
+  box-shadow:var(--sh2);border-radius:4px;font-size:13px;line-height:1.6;color:#1e293b}
+.docx-preview h1{font-size:20px;font-weight:700;margin:20px 0 10px}
+.docx-preview h2{font-size:16px;font-weight:700;margin:18px 0 8px}
+.docx-preview h3{font-size:14px;font-weight:700;margin:14px 0 6px}
+.docx-preview p{margin:0 0 9px}
+.docx-preview table{border-collapse:collapse;width:100%;margin:10px 0;font-size:12px}
+.docx-preview td,.docx-preview th{border:1px solid #cbd5e1;padding:5px 8px;vertical-align:top}
+.docx-preview img{max-width:100%;height:auto;margin:8px 0}
+.docx-preview strong{font-weight:700}
 /* --- reviewable regeneration proposal --- */
 .card.proposal{border-color:#c7dbfc;background:#f8fbff}
 .prop-cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}

@@ -34,6 +34,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
     }).then(j),
+  reportPreview: () => fetch('/api/report/preview').then(j),
   version: () => fetch('/api/version').then(j),
   approveSection: (n, approved) =>
     fetch(`/api/sections/${encodeURIComponent(n)}/approve`, {

@@ -236,6 +236,21 @@ def report_docx():
     )
 
 
+@app.get("/api/report/preview")
+def report_preview():
+    """Build the .docx from cached sections and convert it to HTML (mammoth) for an
+    in-browser preview — the actual assembled report, tables, figures and all."""
+    from graph_rag.generate import build_docx_from_cache
+    try:
+        path = build_docx_from_cache()
+        import mammoth
+        with open(path, "rb") as f:
+            result = mammoth.convert_to_html(f)
+        return {"html": result.value}
+    except Exception as e:
+        return JSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+
 @app.get("/api/report/pdf")
 def report_pdf():
     """Build the .docx, then convert with docx2pdf (drives Microsoft Word via COM;
