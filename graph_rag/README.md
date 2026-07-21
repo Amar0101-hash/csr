@@ -1,4 +1,4 @@
-# GraphRAG prototype (isolated — does not touch `src/csr`)
+# GraphRAG prototype (isolated — does not touch `vector_rag`)
 
 A standalone spike of the "colleague's design": a **study-rooted knowledge graph
 in Neo4j with embeddings on the nodes** (native Neo4j vector index) plus a
@@ -28,46 +28,46 @@ Isolation guarantees:
 
 ```bash
 # 1. build the study-rooted graph + embeddings + vector index
-uv run python graphrag_prototype/demo.py build
+uv run python -m graph_rag.demo build
 
 # 2. semantic (vector) search executed INSIDE Neo4j
-uv run python graphrag_prototype/demo.py search "primary effectiveness endpoint results"
+uv run python -m graph_rag.demo search "primary effectiveness endpoint results"
 
 # 3. text-to-Cypher: the LLM writes + runs the query (guarded, read-only)
-uv run python graphrag_prototype/demo.py ask "How many source documents are in the study and how many sections does each have?"
-uv run python graphrag_prototype/demo.py ask "Which sections mention adverse events?"
+uv run python -m graph_rag.demo ask "How many source documents are in the study and how many sections does each have?"
+uv run python -m graph_rag.demo ask "Which sections mention adverse events?"
 
 # 4. side-by-side: deterministic vector vs LLM-Cypher for the same question
-uv run python graphrag_prototype/demo.py compare "device deficiencies"
+uv run python -m graph_rag.demo compare "device deficiencies"
 
 # 5. readable node captions in Neo4j Browser (patch existing graph, no re-embed)
-uv run python graphrag_prototype/demo.py enrich
+uv run python -m graph_rag.demo enrich
 
 # --- template-driven linking (the second design) ---
 # 6. put the TEMPLATE in the graph + compute FILLED_BY edges to source sections
-uv run python graphrag_prototype/demo.py template
+uv run python -m graph_rag.demo template
 # 7. coverage: which template sections have no linked source (data gaps)
-uv run python graphrag_prototype/demo.py coverage
+uv run python -m graph_rag.demo coverage
 # 8. generate a section by TRAVERSING its FILLED_BY edges (traceable chain)
-uv run python graphrag_prototype/demo.py fill 6.3.5
+uv run python -m graph_rag.demo fill 6.3.5
 # 9. generate the FULL report from graph traversal -> output/GraphRAG_Report.docx
-uv run python graphrag_prototype/demo.py report        # all sections
-uv run python graphrag_prototype/demo.py report 5      # first 5 (quick)
+uv run python -m graph_rag.demo report        # all sections
+uv run python -m graph_rag.demo report 5      # first 5 (quick)
 ```
 
 ## Web UI — CSR GraphRAG Explorer
 
 A local FastAPI app + self-contained single-page frontend (`webapp/`) on top of
-the graph. `src/csr` untouched; backend reuses the prototype modules read-only.
+the graph. `vector_rag` untouched; backend reuses the prototype modules read-only.
 
 **Backend** (FastAPI, always needed):
 ```bash
-uv run python graphrag_prototype/backend/server.py     # API on http://localhost:8000
+uv run python -m backend.server     # API on http://localhost:8000
 ```
 
 **Frontend** is a **Vite + React** app in `frontend/` (requires Node.js LTS):
 ```bash
-cd graphrag_prototype/frontend
+cd frontend
 npm install
 npm run dev        # dev UI on http://localhost:5173 (proxies /api -> :8000)
 # or, for production:

@@ -11,8 +11,8 @@ from pathlib import Path
 
 from neo4j import GraphDatabase
 
-from gr_config import SETTINGS
-from dataingestion.template_graph import L_TSECTION
+from graph_rag.gr_config import SETTINGS
+from graph_rag.dataingestion.template_graph import L_TSECTION
 
 _DOC_COLORS = {
     "protocol": "#2563eb", "sap": "#7c3aed", "mop": "#0891b2",

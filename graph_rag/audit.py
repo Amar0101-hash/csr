@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import time
 
-from gr_config import SETTINGS
+from graph_rag.gr_config import SETTINGS
 
 AUDIT_PATH = SETTINGS.output_dir / "graphrag_audit.jsonl"
 _MAX_PROMPT_CHARS = 20000

@@ -22,7 +22,7 @@ with **source traceability** and **template-structure preservation**.
 ## Architecture
 
 ```
-src/csr/
+vector_rag/
   config.py                 # paths, Bedrock model ids, retrieval knobs, color map
   models.py                 # Chunk, SectionSpec, GeneratedSection, Citation
   ingestion/

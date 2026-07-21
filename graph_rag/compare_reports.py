@@ -6,13 +6,13 @@ from __future__ import annotations
 import glob
 import os
 
-from gr_config import SETTINGS  # noqa: F401  (sets sys.path for the csr package)
+from graph_rag.gr_config import SETTINGS  # noqa: F401  (sets sys.path for the csr package)
 from docx import Document
 from docx.table import Table
 
-from csr.ingestion.docx_reader import iter_block_items
-from csr.ingestion.template_parser import HEADING_STYLES
-from csr.generation.verify import _numbers, _is_material
+from vector_rag.ingestion.docx_reader import iter_block_items
+from vector_rag.ingestion.template_parser import HEADING_STYLES
+from vector_rag.generation.verify import _numbers, _is_material
 
 MAIN = "output/Clinical_Investigation_Report.docx"
 GRAPH = "output/GraphRAG_Report.docx"

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from neo4j import GraphDatabase
 
-from gr_config import L_DOC, L_SECTION, L_STUDY, SETTINGS
+from graph_rag.gr_config import L_DOC, L_SECTION, L_STUDY, SETTINGS
 
 
 def _driver():

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from neo4j import GraphDatabase
 
-from gr_config import L_SECTION, SETTINGS, VECTOR_INDEX
-from csr.knowledge.embeddings import TitanEmbedder
+from graph_rag.gr_config import L_SECTION, SETTINGS, VECTOR_INDEX
+from vector_rag.knowledge.embeddings import TitanEmbedder
 
 _embedder = TitanEmbedder(SETTINGS.embed_model, SETTINGS.aws_region, SETTINGS.embed_dim)
 

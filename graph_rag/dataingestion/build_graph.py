@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from neo4j import GraphDatabase
 
-from gr_config import (
+from graph_rag.gr_config import (
     EMBED_DIM,
     L_DOC,
     L_SECTION,
@@ -14,8 +14,8 @@ from gr_config import (
     VECTOR_INDEX,
 )
 
-from csr.ingestion.sources import load_all_sources
-from csr.knowledge.embeddings import TitanEmbedder
+from vector_rag.ingestion.sources import load_all_sources
+from vector_rag.knowledge.embeddings import TitanEmbedder
 
 
 def _driver():

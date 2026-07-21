@@ -16,11 +16,11 @@ from __future__ import annotations
 
 from neo4j import GraphDatabase
 
-from gr_config import L_SECTION, L_STUDY, SETTINGS, STUDY_ID, VECTOR_INDEX
-from csr.ingestion.template_parser import parse_template
-from csr.knowledge.embeddings import TitanEmbedder
-from dataingestion.entities import extract_entities
-from csr.generation.prompts import doc_types_for, guaranteed_tables_for
+from graph_rag.gr_config import L_SECTION, L_STUDY, SETTINGS, STUDY_ID, VECTOR_INDEX
+from vector_rag.ingestion.template_parser import parse_template
+from vector_rag.knowledge.embeddings import TitanEmbedder
+from graph_rag.dataingestion.entities import extract_entities
+from vector_rag.generation.prompts import doc_types_for, guaranteed_tables_for
 
 L_TSECTION = "RagTemplateSection"
 

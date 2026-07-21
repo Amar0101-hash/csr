@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from neo4j import GraphDatabase
 
-from gr_config import SETTINGS
-from dataingestion.template_graph import L_TSECTION
-from csr.generation.llm import ClaudeClient
+from graph_rag.gr_config import SETTINGS
+from graph_rag.dataingestion.template_graph import L_TSECTION
+from vector_rag.generation.llm import ClaudeClient
 
 _client = ClaudeClient(SETTINGS)
 

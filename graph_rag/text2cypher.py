@@ -11,8 +11,8 @@ import re
 
 from neo4j import GraphDatabase
 
-from gr_config import L_DOC, L_SECTION, L_STUDY, SETTINGS, VECTOR_INDEX
-from csr.generation.llm import ClaudeClient
+from graph_rag.gr_config import L_DOC, L_SECTION, L_STUDY, SETTINGS, VECTOR_INDEX
+from vector_rag.generation.llm import ClaudeClient
 
 _client = ClaudeClient(SETTINGS)
 

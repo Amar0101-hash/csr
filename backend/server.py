@@ -15,10 +15,8 @@ import sys
 import threading
 import time
 
-# make the prototype package importable
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_PROTO = os.path.dirname(_HERE)
-sys.path.insert(0, _PROTO)
+# repo root = parent of this backend/ package (used to locate the frontend build)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
@@ -26,11 +24,11 @@ from fastapi.staticfiles import StaticFiles  # noqa: E402
 from neo4j import GraphDatabase  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-from gr_config import SETTINGS  # noqa: E402
-from dataingestion.template_graph import L_TSECTION  # noqa: E402
-from backend.trace_view import section_view, coverage_view, section_sort_key  # noqa: E402
-from backend.generate import author_section  # noqa: E402
-from backend.audit import log_event, events_for  # noqa: E402
+from graph_rag.gr_config import SETTINGS  # noqa: E402
+from graph_rag.dataingestion.template_graph import L_TSECTION  # noqa: E402
+from graph_rag.trace_view import section_view, coverage_view, section_sort_key  # noqa: E402
+from graph_rag.generate import author_section  # noqa: E402
+from graph_rag.audit import log_event, events_for  # noqa: E402
 
 app = FastAPI(title="CSR GraphRAG Explorer")
 _driver = GraphDatabase.driver(
@@ -130,7 +128,7 @@ class FullGenReq(BaseModel):
 
 def _run_full_generation(effort: str, workers: int) -> None:
     from concurrent.futures import ThreadPoolExecutor
-    from backend.generate import author_section, _spec_map
+    from graph_rag.generate import author_section, _spec_map
 
     try:
         excluded = {r["n"] for r in _run(
@@ -202,7 +200,7 @@ def generate_full_status():
 
 @app.get("/api/report/docx")
 def report_docx():
-    from backend.generate import build_docx_from_cache
+    from graph_rag.generate import build_docx_from_cache
     try:
         path = build_docx_from_cache()
     except Exception as e:
@@ -218,7 +216,7 @@ def report_pdf():
     """Build the .docx, then convert with docx2pdf (drives Microsoft Word via COM;
     run in a subprocess so COM never touches the server's threads)."""
     import subprocess
-    from backend.generate import build_docx_from_cache
+    from graph_rag.generate import build_docx_from_cache
     try:
         docx_path = build_docx_from_cache()
     except Exception as e:
@@ -257,7 +255,7 @@ _VECTOR_RETRIEVER = None  # lazy: needs the LanceDB index built by `csr ingest`
 def _vector_retriever():
     global _VECTOR_RETRIEVER
     if _VECTOR_RETRIEVER is None:
-        from csr.pipeline import _load_retriever
+        from vector_rag.pipeline import _load_retriever
         _VECTOR_RETRIEVER = _load_retriever(SETTINGS)
     return _VECTOR_RETRIEVER
 
@@ -292,7 +290,7 @@ def compare(req: CompareReq):
     try:
         t0 = time.perf_counter()
         if req.graph_mode == "cypher":
-            from backend.text2cypher import ask
+            from graph_rag.text2cypher import ask
             res = ask(req.query, verbose=False)
             out["graph"] = {
                 "latency_ms": round((time.perf_counter() - t0) * 1000),
@@ -300,7 +298,7 @@ def compare(req: CompareReq):
                 "error": res.get("error"),
             }
         else:
-            from backend.retrieve import vector_search
+            from graph_rag.retrieve import vector_search
             rows = vector_search(req.query, k=req.k)
             out["graph"] = {
                 "latency_ms": round((time.perf_counter() - t0) * 1000),
@@ -462,7 +460,7 @@ def audit_all():
 def numbers_audit():
     """Every material number in every generated section, with the source that
     supports it (or flagged unsupported). The document-wide fact check."""
-    from csr.generation.verify import _numbers, _is_material
+    from vector_rag.generation.verify import _numbers, _is_material
     rows = _run(f"""
         MATCH (t:{L_TSECTION})
         WHERE t.content IS NOT NULL AND t.generate AND NOT coalesce(t.excluded, false)
@@ -503,7 +501,7 @@ _SOURCE_CACHE = None  # ordered chunks from the main app's sources.json
 def _source_chunks():
     global _SOURCE_CACHE
     if _SOURCE_CACHE is None:
-        from csr.ingestion.sources import load_chunks, load_all_sources
+        from vector_rag.ingestion.sources import load_chunks, load_all_sources
         if SETTINGS.sources_cache.exists():
             _SOURCE_CACHE = load_chunks(SETTINGS.sources_cache)
         else:  # no cache yet: chunk the study docs directly (one-time)
@@ -516,7 +514,7 @@ def _source_chunks():
 @app.get("/api/source/{doc}/file")
 def source_original_file(doc: str):
     """Download the original .docx this logical source doc came from."""
-    from csr.ingestion.sources import classify_source
+    from vector_rag.ingestion.sources import classify_source
     for path in sorted(SETTINGS.study_dir.glob("*.docx")):
         cls = classify_source(path.name)
         if cls and cls[0] == doc:
@@ -544,7 +542,7 @@ def source_document(doc: str):
 # In production serve the built React app (frontend/dist). Until it's built,
 # fall back to the vanilla legacy.html so the UI still works. For React dev,
 # run `npm run dev` (Vite on :5173, which proxies /api to this server).
-_FRONTEND = os.path.join(_PROTO, "frontend")
+_FRONTEND = os.path.join(_ROOT, "frontend")
 _DIST = os.path.join(_FRONTEND, "dist")
 
 if os.path.isdir(os.path.join(_DIST, "assets")):

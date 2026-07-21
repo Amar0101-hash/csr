@@ -12,16 +12,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 from neo4j import GraphDatabase
 
-from gr_config import SETTINGS
-from dataingestion.template_graph import L_TSECTION, _inherit_guidance
+from graph_rag.gr_config import SETTINGS
+from graph_rag.dataingestion.template_graph import L_TSECTION, _inherit_guidance
 
-from csr.ingestion.template_parser import parse_template
-from csr.models import Chunk, Citation, GeneratedSection
-from csr.knowledge.retriever import RetrievedChunk
-from csr.generation.llm import ClaudeClient
-from csr.generation.prompts import build_user_prompt, SYSTEM_WRITER
-from csr.generation.verify import verify_section
-from csr.assembly.docx_builder import build_report
+from vector_rag.ingestion.template_parser import parse_template
+from vector_rag.models import Chunk, Citation, GeneratedSection
+from vector_rag.knowledge.retriever import RetrievedChunk
+from vector_rag.generation.llm import ClaudeClient
+from vector_rag.generation.prompts import build_user_prompt, SYSTEM_WRITER
+from vector_rag.generation.verify import verify_section
+from vector_rag.assembly.docx_builder import build_report
 
 _FETCH = f"""
 MATCH (t:{L_TSECTION} {{number: $num}})-[f:FILLED_BY]->(s:RagSection)
@@ -45,7 +45,7 @@ def _persist_content(driver, number: str, gs: GeneratedSection) -> None:
     """Cache a section's generated content on its template node so the web UI
     shows it instantly."""
     import json
-    from dataingestion.template_graph import L_TSECTION
+    from graph_rag.dataingestion.template_graph import L_TSECTION
     cites = [{"doc": c.doc, "path": c.section_path, "quote": c.quote} for c in gs.citations]
     with driver.session(database=SETTINGS.neo4j_database) as s:
         s.run(f"MATCH (t:{L_TSECTION} {{number: $n}}) "
@@ -73,7 +73,7 @@ def _author(spec, client: ClaudeClient, driver, custom_prompt: str | None = None
     if custom_prompt and custom_prompt.strip():
         user += ("\n\nADDITIONAL AUTHOR INSTRUCTION (obey this while staying grounded "
                  f"in the sources above):\n{custom_prompt.strip()}\n")
-    from backend.audit import log_event
+    from graph_rag.audit import log_event
     audit_sources = [{"id": r.chunk.id, "doc": r.chunk.doc,
                       "path": r.chunk.section_path, "score": r.score}
                      for r in retrieved]

@@ -3,11 +3,7 @@
     python main.py ingest
     python main.py run
 """
-import sys
-
-sys.path.insert(0, "src")
-
-from csr.cli import main
+from vector_rag.cli import main
 
 if __name__ == "__main__":
     raise SystemExit(main())
